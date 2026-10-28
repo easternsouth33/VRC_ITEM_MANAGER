@@ -55,6 +55,14 @@ async function buildRenderer() {
   const htmlSrc = resolve(root, 'src/renderer/index.html');
   const html = readFileSync(htmlSrc, 'utf8');
   writeFileSync(resolve(outDir, 'renderer/index.html'), html);
+  // 终末地圆盘：把 assets/dial.js 原样内联成 dist/renderer/dial.js（<script src> 载入后挂 window.drawDial）
+  const dialSrc = resolve(root, 'ui-mockup/assets/dial.js');
+  if (existsSync(dialSrc)) {
+    // dial.js 是 ES module（export function drawDial），普通 script 载入不挂 window——改写为 window.drawDial 全局
+    let src = readFileSync(dialSrc, 'utf8');
+    src = src.replace(/export\s+function\s+drawDial/, 'window.drawDial = function drawDial');
+    writeFileSync(resolve(outDir, 'renderer/dial.js'), src);
+  }
 
   await build({
     entryPoints: [resolve(root, 'src/renderer/main.tsx')],

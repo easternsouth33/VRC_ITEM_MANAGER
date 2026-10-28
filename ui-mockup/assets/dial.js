@@ -66,6 +66,7 @@ export function drawDial(svg, { sections, gauges = [], idle }) {
     const [tx, ty] = at((R1 + R2) / 2, mid);
     const a = node('a', { href: s.href ?? '#', class: `seg${s.here ? ' is-here' : ''}${s.alert ? ' is-alert' : ''}`, style: `--i:${i}` });
     a.setAttribute('aria-label', `${s.zh}：${s.big}${s.unit ?? ''}`);
+    if (s.onClick) a.addEventListener('click', s.onClick);
     a.append(
       node('path', { class: 'lock', d: `M${l0}A${R2 + 8} ${R2 + 8} 0 0 1 ${l1}`, pathLength: 100 }),
       node('line', { class: 'beam', x1: bx0, y1: by0, x2: bx1, y2: by1, pathLength: 100 }),

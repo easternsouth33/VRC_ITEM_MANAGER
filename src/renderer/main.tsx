@@ -56,6 +56,33 @@ function applySettingsToDom(s: any) {
   root.setAttribute('data-ef-motion', (s?.motion || 'full') === 'calm' ? 'calm' : 'full');
 }
 
+
+// ---------- 控制台圆盘（终末地主视觉） ----------
+function Dial({ s }: { s: any }) {
+  const ref = useRef<SVGSVGElement | null>(null);
+  useEffect(() => {
+    const draw = (window as any).drawDial;
+    if (!draw || !ref.current || !s) return;
+    const navgo = (page: string) => (e: any) => { e.preventDefault(); nav(page); };
+    draw(ref.current, {
+      sections: [
+        { zh: '图库', en: 'Gallery', href: '#/gallery', big: fmtInt(s.total), unit: '卡', here: true, onClick: navgo('gallery') },
+        { zh: '匹配', en: 'Match', href: '#/match', big: fmtInt(s.pending), unit: '待办', alert: s.pending > 0, onClick: navgo('match') },
+        { zh: '分类', en: 'Classify', href: '#/classify', big: fmtInt(s.filed), unit: '已分类', onClick: navgo('classify') },
+        { zh: '集合', en: 'Collections', href: '#/collections', big: fmtInt(s.collections), unit: '个', onClick: navgo('collections') },
+        { zh: 'BOOTH', en: 'Browser', href: '#/booth', big: fmtInt(s.boothItems), unit: '商品', onClick: navgo('booth') },
+        { zh: '任务', en: 'Tasks', href: '#/tasks', big: fmtInt(s.netActive), unit: '进行', alert: s.netActive > 0, onClick: navgo('tasks') },
+      ],
+      gauges: [
+        { label: '匹配率', share: s.total > 0 ? s.matched / s.total : 0 },
+        { label: '分类率', share: s.total > 0 ? s.filed / s.total : 0 },
+      ],
+      idle: { label: '已扫描', big: fmtBytes(s.size), unit: '', sub: '扫描于 ' + s.scannedAt },
+    });
+  }, [s]);
+  return <svg className="ef-dial" ref={ref} role="navigation" aria-label="控制台分区导航" />;
+}
+
 // ---------- 应用 ----------
 function App() {
   const route = useHashRoute();
@@ -68,6 +95,7 @@ function App() {
     window.vrc?.settingsGet?.().then((s: any) => { setSettings(s); applySettingsToDom(s); }).catch(() => {});
   }, []);
   const [upd, setUpd] = useState<any>(null);
+
 
   // 启动后静默检查 GitHub 最新发布，有新版本则弹更新提示
   useEffect(() => {
@@ -415,95 +443,118 @@ function Gallery() {
   const totals = useMemo(() => ({
     cards: cards.length,
     matched: cards.filter((c) => c.match_state !== 'pending').length,
+    pending: cards.filter((c) => c.match_state === 'pending').length,
+    filed: cards.filter((c) => c.category_id != null).length,
     size: cards.reduce((s, c) => s + (c.size || 0), 0),
   }), [cards]);
 
+  const scannedAt = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '.');
+  const consoleStats = {
+    total: totals.cards,
+    matched: totals.matched,
+    pending: totals.pending,
+    filed: totals.filed,
+    size: totals.size,
+    scannedAt,
+    collections: 0,
+    boothItems: cards.filter((c) => c.booth_id).length,
+    netActive: 0,
+  };
   return (
-    <div className="cols">
-      <div className="stack">
-        <div className="ef-sheet-head">
-          <h1>图库</h1>
-          <div className="ef-facts">
-            <span className="ef-field">{fmtInt(totals.cards)} 卡</span>
-            <span className="ef-field">{fmtBytes(totals.size)}</span>
-            <span className="ef-field">已匹配 {fmtInt(totals.matched)}</span>
+    <div className="stack">
+      <div className="ef-sheet-head">
+        <h1>图库</h1>
+        <div className="ef-facts">
+          <span className="ef-field">{fmtInt(totals.cards)} 卡</span>
+          <span className="ef-field">{fmtBytes(totals.size)}</span>
+          <span className="ef-field">已匹配 {fmtInt(totals.matched)}</span>
+          <span className="ef-field">待匹配 {fmtInt(totals.pending)}</span>
+        </div>
+      </div>
+      {!loading && cards.length > 0 && (
+        <section className="console-hero" aria-label="总览">
+          <div className="console-side">
+            <StatPanel title="素材总量" lead="right" value={fmtInt(totals.cards)} unit="卡" />
+            <StatPanel title="占用空间" lead="right" value={fmtBytes(totals.size)} unit="" />
+            <StatPanel title="待匹配" lead="right" value={fmtInt(totals.pending)} unit="卡" alert={totals.pending > 0} />
           </div>
-        </div>
-        <div className="ef-search">
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索名称 / 编号　#编号 cat:分类 state:状态 kw:词 ext:扩展" aria-label="搜索" />
-        </div>
-        <div className="chips">
-          <button className={'ef-chip' + (state === '' ? ' is-on' : '')} aria-pressed={state === ''} onClick={() => setState('')}>全部</button>
-          {Object.entries(MATCH_STATE).map(([k, v]) => (
-            <button key={k} className={'ef-chip' + (state === k ? ' is-on' : '')} aria-pressed={state === k} onClick={() => setState(k)}>{v}</button>
-          ))}
-        </div>
-        <div className="chips">
-          <button className={'ef-chip' + (cat === null ? ' is-on' : '')} aria-pressed={cat === null} onClick={() => setCat(null)}>全部分类</button>
-          {cats.filter((c) => !c.parentId).map((c) => (
-            <button key={c.id} className={'ef-chip' + (cat === c.id ? ' is-on' : '')} aria-pressed={cat === c.id} onClick={() => setCat(c.id)}>{c.name}<span className="n">{c.cardCount}</span></button>
-          ))}
-          <button className={'ef-chip' + (fav ? ' is-on' : '')} aria-pressed={fav} onClick={() => setFav(!fav)}>★ 收藏<span className="n">{cards.filter((c) => c.favorite).length}</span></button>
-          <button className={'ef-chip' + (groupBy ? ' is-on' : '')} aria-pressed={groupBy} onClick={() => setGroupBy(!groupBy)}>▦ 按商品分组</button>
-        </div>
-        <div className="chips" style={{ marginTop: '0.5rem' }}>
-          <button className={'ef-chip' + (batchMode ? ' is-on' : '')} aria-pressed={batchMode} onClick={() => { setBatchMode(!batchMode); setSel(new Set()); }}>批量标注</button>
-          {batchMode && (
-            <>
-              <button className="ef-chip" onClick={selectAllVisible}>全选当前 {fmtInt(filtered.length)}</button>
-              <span className="ef-field" style={{ alignSelf: 'center' }}>已选 {fmtInt(sel.size)}</span>
-            </>
-          )}
-        </div>
+          <div className="console-dial"><Dial s={consoleStats} /></div>
+          <div className="console-side">
+            <StatPanel title="已分类" lead="left" value={fmtInt(totals.filed)} unit="卡" />
+            <StatPanel title="匹配率" lead="left" value={totals.cards ? Math.round((totals.matched / totals.cards) * 100) + '' : '0'} unit="%" />
+            <StatPanel title="分类率" lead="left" value={totals.cards ? Math.round((totals.filed / totals.cards) * 100) + '' : '0'} unit="%" />
+          </div>
+        </section>
+      )}
+      <div className="ef-search">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索名称 / 编号　#编号 cat:分类 state:状态 kw:词 ext:扩展" aria-label="搜索" />
+      </div>
+      <div className="chips">
+        <button className={'ef-chip' + (state === '' ? ' is-on' : '')} aria-pressed={state === ''} onClick={() => setState('')}>全部</button>
+        {Object.entries(MATCH_STATE).map(([k, v]) => (
+          <button key={k} className={'ef-chip' + (state === k ? ' is-on' : '')} aria-pressed={state === k} onClick={() => setState(k)}>{v}</button>
+        ))}
+      </div>
+      <div className="chips">
+        <button className={'ef-chip' + (cat === null ? ' is-on' : '')} aria-pressed={cat === null} onClick={() => setCat(null)}>全部分类</button>
+        {cats.filter((c) => !c.parentId).map((c) => (
+          <button key={c.id} className={'ef-chip' + (cat === c.id ? ' is-on' : '')} aria-pressed={cat === c.id} onClick={() => setCat(c.id)}>{c.name}<span className="n">{c.cardCount}</span></button>
+        ))}
+        <button className={'ef-chip' + (fav ? ' is-on' : '')} aria-pressed={fav} onClick={() => setFav(!fav)}>★ 收藏<span className="n">{cards.filter((c) => c.favorite).length}</span></button>
+        <button className={'ef-chip' + (groupBy ? ' is-on' : '')} aria-pressed={groupBy} onClick={() => setGroupBy(!groupBy)}>▦ 按商品分组</button>
+      </div>
+      <div className="chips" style={{ marginTop: '0.5rem' }}>
+        <button className={'ef-chip' + (batchMode ? ' is-on' : '')} aria-pressed={batchMode} onClick={() => { setBatchMode(!batchMode); setSel(new Set()); }}>批量标注</button>
         {batchMode && (
-          <div className="ef-rows flat" style={{ marginTop: '0.5rem' }}>
-            <li>
-              <span className="meta">关键词</span>
-              <span className="acts">
-                <input value={bKw} onChange={(e) => setBKw(e.target.value)} placeholder="巧克力, 衣装、夏 混合串自动切分" style={{ flex: 1, minWidth: 0 }} />
-                <button className="ef-btn small go" onClick={() => batchKeywords(true)}>+ 追加</button>
-                <button className="ef-btn small danger" onClick={() => batchKeywords(false)}>- 移除</button>
-              </span>
-            </li>
-            <li>
-              <span className="meta">分类</span>
-              <span className="acts">
-                <select value={bCat ?? ''} onChange={(e) => setBCat(e.target.value ? Number(e.target.value) : null)} style={{ minWidth: 0 }}>
-                  <option value="">选择分类…</option>
-                  {cats.filter((c) => !c.parentId).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-                <button className="ef-btn small go" onClick={batchCategory}>归入分类</button>
-              </span>
-            </li>
-          </div>
-        )}
-        {msgB && <div className="ef-notice" data-flag="!">{msgB}</div>}
-        {loading ? <div className="ef-empty">正在读取素材…</div> : (
-          groupBy ? (
-            <div className="gwall">
-              {groupedCards.map((g) => (
-                <section key={g.key} className="gblock">
-                  <div className="ghead"><span className="ef-field">#{g.boothId || '未匹配'}</span><span className="gt">{g.boothName || (g.boothId ? 'BOOTH 商品' : '未匹配商品')}</span><span className="ef-field">{g.items.length} 项</span></div>
-                  <div className="wall">
-                    {g.items.map((c) => <GalleryCard key={c.id} c={c} selected={sel.has(c.id)} onToggle={toggleSel} batchMode={batchMode} />)}
-                  </div>
-                </section>
-              ))}
-              {groupedCards.length === 0 && <div className="ef-empty">没有符合条件的素材，试试放宽筛选。</div>}
-            </div>
-          ) : (
-            <div className="wall">
-              {filtered.map((c) => <GalleryCard key={c.id} c={c} selected={sel.has(c.id)} onToggle={toggleSel} batchMode={batchMode} />)}
-              {filtered.length === 0 && <div className="ef-empty">没有符合条件的素材，试试放宽筛选。</div>}
-            </div>
-          )
+          <>
+            <button className="ef-chip" onClick={selectAllVisible}>全选当前 {fmtInt(filtered.length)}</button>
+            <span className="ef-field" style={{ alignSelf: 'center' }}>已选 {fmtInt(sel.size)}</span>
+          </>
         )}
       </div>
-      <aside className="board">
-        <StatPanel title="素材总量" lead="right" value={fmtInt(totals.cards)} unit="卡" />
-        <StatPanel title="占用空间" lead="left" value={fmtBytes(totals.size)} unit="" />
-        <StatPanel title="待匹配" lead="right" value={fmtInt(cards.filter((c) => c.match_state === 'pending').length)} unit="卡" alert />
-      </aside>
+      {batchMode && (
+        <div className="ef-rows flat" style={{ marginTop: '0.5rem' }}>
+          <li>
+            <span className="meta">关键词</span>
+            <span className="acts">
+              <input value={bKw} onChange={(e) => setBKw(e.target.value)} placeholder="巧克力, 衣装、夏 混合串自动切分" style={{ flex: 1, minWidth: 0 }} />
+              <button className="ef-btn small go" onClick={() => batchKeywords(true)}>+ 追加</button>
+              <button className="ef-btn small danger" onClick={() => batchKeywords(false)}>- 移除</button>
+            </span>
+          </li>
+          <li>
+            <span className="meta">分类</span>
+            <span className="acts">
+              <select value={bCat ?? ''} onChange={(e) => setBCat(e.target.value ? Number(e.target.value) : null)} style={{ minWidth: 0 }}>
+                <option value="">选择分类…</option>
+                {cats.filter((c) => !c.parentId).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <button className="ef-btn small go" onClick={batchCategory}>归入分类</button>
+            </span>
+          </li>
+        </div>
+      )}
+      {msgB && <div className="ef-notice" data-flag="!">{msgB}</div>}
+      {loading ? <div className="ef-empty">正在读取素材…</div> : (
+        groupBy ? (
+          <div className="gwall">
+            {groupedCards.map((g) => (
+              <section key={g.key} className="gblock">
+                <div className="ghead"><span className="ef-field">#{g.boothId || '未匹配'}</span><span className="gt">{g.boothName || (g.boothId ? 'BOOTH 商品' : '未匹配商品')}</span><span className="ef-field">{g.items.length} 项</span></div>
+                <div className="wall">
+                  {g.items.map((c) => <GalleryCard key={c.id} c={c} selected={sel.has(c.id)} onToggle={toggleSel} batchMode={batchMode} />)}
+                </div>
+              </section>
+            ))}
+            {groupedCards.length === 0 && <div className="ef-empty">没有符合条件的素材，试试放宽筛选。</div>}
+          </div>
+        ) : (
+          <div className="wall">
+            {filtered.map((c) => <GalleryCard key={c.id} c={c} selected={sel.has(c.id)} onToggle={toggleSel} batchMode={batchMode} />)}
+            {filtered.length === 0 && <div className="ef-empty">没有符合条件的素材，试试放宽筛选。</div>}
+          </div>
+        )
+      )}
     </div>
   );
 }

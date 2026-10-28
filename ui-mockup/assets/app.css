@@ -653,3 +653,36 @@ ul.ef-rows.flat > li { padding-left: 0; padding-right: 0; }
   #boot-splash .bs-inner { animation: none; }
   #boot-splash .bs-fill { transition: none; }
 }
+
+
+/* ---------- 控制台主视觉（终末地 console）：左右看板 + 中央圆盘 ---------- */
+.console-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 30rem) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: center;
+  padding: 1rem 0 0.25rem;
+  border-top: 1px solid var(--ef-rule);
+  border-bottom: 1px solid var(--ef-rule);
+}
+.console-side {
+  display: grid;
+  gap: 1.25rem;
+  align-content: center;
+}
+.console-dial {
+  width: min(100%, 30rem);
+  justify-self: center;
+}
+.console-dial .ef-dial { width: 100%; height: auto; }
+@media (max-width: 1100px) {
+  .console-hero { grid-template-columns: minmax(0, 1fr); }
+  .console-side { grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .console-side > * { animation: ef-come 320ms var(--ef-snap) both; animation-delay: calc(var(--i, 0) * 45ms); }
+  .console-side > *:nth-child(1) { --i: 0; }
+  .console-side > *:nth-child(2) { --i: 1; }
+  .console-side > *:nth-child(3) { --i: 2; }
+  .console-dial { animation: ef-assemble 520ms var(--ef-mech) 120ms both; }
+}
