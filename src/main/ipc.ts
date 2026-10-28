@@ -161,9 +161,9 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null, state
     try {
       const info = await fetchBoothItem(id, { cookie: state.boothCookie });
       saveBoothItem(db, info);
-      return info.wishListUrl || ('https://booth.pm/ja/items/' + id);
+      return info.wishListUrl || ('https://booth.pm/zh-cn/items/' + id);
     } catch {
-      return 'https://booth.pm/ja/items/' + id;
+      return 'https://booth.pm/zh-cn/items/' + id;
     }
   });
 
@@ -515,7 +515,7 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null, state
       const info = await fetchBoothItem(id, { cookie: state.boothCookie });
       saveBoothItem(db, info);
     } catch { /* 抓取失败仍返回商品页 */ }
-    return 'https://booth.pm/ja/items/' + id;
+    return 'https://booth.pm/zh-cn/items/' + id;
   });
 
   // ---- 下载入口（计划书 §5.10）：入队下载 URL ----

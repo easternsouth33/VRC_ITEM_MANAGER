@@ -19,7 +19,7 @@ async function getJSON(url: string, opts: BoothFetchOpts = {}): Promise<unknown>
 
 // 单品 JSON（计划书 §5.3）
 export async function fetchBoothItem(id: string, opts: BoothFetchOpts = {}): Promise<BoothInfo> {
-  const url = `https://booth.pm/ja/items/${id}.json`;
+  const url = `https://booth.pm/zh-cn/items/${id}.json`;
   const j = await getJSON(url, opts) as any;
   const tags: string[] = Array.isArray(j.tags) ? j.tags.map((t: any) => t.name) : [];
   const aliases: string[] = [];
@@ -50,7 +50,7 @@ export async function fetchBoothItem(id: string, opts: BoothFetchOpts = {}): Pro
     categoryId: cat.id ? String(cat.id) : null,
     categoryName: cat.name || null,
     categoryParent: cat.parent?.name || null,
-    url: j.url || `https://booth.pm/ja/items/${id}`,
+    url: j.url || `https://booth.pm/zh-cn/items/${id}`,
     description,
     wishListUrl: j.wish_list_url || null,
     price: j.price != null ? String(j.price) : null,
@@ -74,7 +74,7 @@ export interface BoothSearchHit {
 }
 
 export async function searchBooth(query: string, opts: BoothFetchOpts = {}): Promise<BoothSearchHit[]> {
-  const url = `https://booth.pm/ja/search/${encodeURIComponent(query)}`;
+  const url = `https://booth.pm/zh-cn/search/${encodeURIComponent(query)}`;
   const res = await fetch(url, {
     headers: { 'User-Agent': UA, ...(opts.cookie ? { Cookie: opts.cookie } : {}) },
   });
@@ -91,7 +91,7 @@ export async function searchBooth(query: string, opts: BoothFetchOpts = {}): Pro
     const category = $el.attr('data-product-category') || null;
     const brand = $el.attr('data-product-brand') || null;
     const img = $el.find('a.js-thumbnail-image').attr('data-original') || $el.find('img').attr('src') || null;
-    const link = $el.find('.item-card__title a').attr('href') || `https://booth.pm/ja/items/${id}`;
+    const link = $el.find('.item-card__title a').attr('href') || `https://booth.pm/zh-cn/items/${id}`;
     hits.push({ id, name, price, category, brand, imageUrl: img, url: link.startsWith('http') ? link : 'https://booth.pm' + link });
   });
   return hits;
@@ -133,7 +133,7 @@ export async function fetchBoothLibrary(opts: BoothFetchOpts = {}): Promise<{ lo
   }
   const items: LibraryItem[] = [];
   const seen = new Set<string>();
-  // 资料库条目：常见为指向 /items/{id} 或 /ja/items/{id} 的链接
+  // 资料库条目：常见为指向 /items/{id} 或 /zh-cn/items/{id} 的链接
   $('a[href*="/items/"]').each((_i, el) => {
     const $a = $(el);
     const href = $a.attr('href') || '';
@@ -161,7 +161,7 @@ export async function fetchBoothLibrary(opts: BoothFetchOpts = {}): Promise<{ lo
       id,
       name,
       shop,
-      url: 'https://booth.pm/ja/items/' + id,
+      url: 'https://booth.pm/zh-cn/items/' + id,
       imageUrl,
       date,
     });

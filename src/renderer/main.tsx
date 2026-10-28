@@ -136,15 +136,10 @@ function NavLink({ page, label, en, current }: { page: string; label: string; en
   );
 }
 
-// ---------- 启动序列（打开时快速闪过的文本动画，终末地机械风） ----------
+// ---------- 启动序列（极短的机械入场，不拖慢启动） ----------
 const BOOT_LINES = [
-  '确认用户信息中……',
   '读取本地资料库',
-  '校验素材索引',
-  '载入封面与缩略图缓存',
-  '同步 BOOTH 商品缓存',
-  '装配界面资源与字体',
-  '校准网格 · 配色 · 动效',
+  '载入界面资源',
   '完成',
 ];
 
@@ -152,7 +147,7 @@ function BootSequence({ done }: { done: () => void }) {
   const [idx, setIdx] = useState(0);
   useEffect(() => {
     if (idx >= BOOT_LINES.length) { done(); return; }
-    const t = setTimeout(() => setIdx(idx + 1), idx >= BOOT_LINES.length - 1 ? 260 : 78);
+    const t = setTimeout(() => setIdx(idx + 1), idx >= BOOT_LINES.length - 1 ? 40 : 22);
     return () => clearTimeout(t);
   }, [idx]);
   return (
@@ -1181,7 +1176,7 @@ function Match() {
         {msg && <div className="ef-notice" data-flag="!">{msg}</div>}
         {batchMode && (
           <div className="ef-rows flat" style={{ marginTop: 0 }}>
-            <li><span className="meta">BOOTH 编号 / 链接</span><span className="acts"><input className="ef-search" value={batchRef} onChange={(e) => setBatchRef(e.target.value)} placeholder="booth.pm/ja/items/6405390 或 6405390" style={{ flex: 1, minWidth: 0 }} /><button className="ef-btn small go" disabled={busy || sel.size === 0} onClick={batchApply}>批量关联</button></span></li>
+            <li><span className="meta">BOOTH 编号 / 链接</span><span className="acts"><input className="ef-search" value={batchRef} onChange={(e) => setBatchRef(e.target.value)} placeholder="booth.pm/zh-cn/items/6405390 或 6405390" style={{ flex: 1, minWidth: 0 }} /><button className="ef-btn small go" disabled={busy || sel.size === 0} onClick={batchApply}>批量关联</button></span></li>
             <li><span className="meta">已勾选 {sel.size} 个素材</span><span className="acts"><button className="ef-btn small" onClick={selectAllVisible}>全选当前</button><button className="ef-btn small" onClick={clearSel}>清空</button></span></li>
           </div>
         )}
@@ -1204,7 +1199,7 @@ function Match() {
         {!batchMode && current && (
           <div className="ef-rows flat" style={{ marginTop: '1rem' }}>
             <li><span className="meta">当前：{current.name}</span><span className="acts"><button className="ef-btn small" onClick={() => window.vrc.matchSkip(current.id).then(() => { setCurrent(null); setCands([]); setMsg(''); reload(); })}>跳过</button><button className="ef-btn small" onClick={undo}>撤回</button></span></li>
-            <li><span className="meta">手动编号 / 链接</span><span className="acts"><input className="ef-search" value={manualRef} onChange={(e) => setManualRef(e.target.value)} placeholder="booth.pm/ja/items/6405390 或 6405390" style={{ flex: 1, minWidth: 0 }} /><button className="ef-btn small go" disabled={busy} onClick={manualApply}>关联</button></span></li>
+            <li><span className="meta">手动编号 / 链接</span><span className="acts"><input className="ef-search" value={manualRef} onChange={(e) => setManualRef(e.target.value)} placeholder="booth.pm/zh-cn/items/6405390 或 6405390" style={{ flex: 1, minWidth: 0 }} /><button className="ef-btn small go" disabled={busy} onClick={manualApply}>关联</button></span></li>
           </div>
         )}
       </div>
@@ -1369,39 +1364,20 @@ function Keywords() {
 
 // ---------- 内置 BOOTH 浏览器 ----------
 function Booth() {
-  const [q, setQ] = useState('');
-  const [hits, setHits] = useState<any[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [frameUrl, setFrameUrl] = useState('https://booth.pm/ja/search/');
+  const [frameUrl, setFrameUrl] = useState('https://booth.pm/zh-cn/');
   const [lib, setLib] = useState<any>({ loggedIn: false, items: [] });
   const [libLoaded, setLibLoaded] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
-  const [msg, setMsg] = useState('');
 
-  // BOOTH 官方对商品/搜索页返回 X-Frame-Options: SAMEORIGIN，iframe 会被拦截，
+  // BOOTH 官方对商品/资料库页返回 X-Frame-Options: SAMEORIGIN，iframe 会被拦截，
   // 因此统一改为在独立子窗口（persist:booth 共享登录态）中打开。
   function openUrl(url: string) {
     setFrameUrl(url);
     window.vrc?.boothOpen?.(url);
   }
 
-  async function search() {
-    if (!q.trim()) return;
-    setBusy(true);
-    try {
-      const h = await window.vrc.boothSearch(q.trim());
-      setHits(h);
-      const u = 'https://booth.pm/ja/search/' + encodeURIComponent(q.trim());
-      setFrameUrl(u);
-      openUrl(u);
-    } catch (e) {
-      setHits([]);
-    }
-    setBusy(false);
-  }
-
   function openItem(id: string) {
-    openUrl('https://booth.pm/ja/items/' + id);
+    openUrl('https://booth.pm/zh-cn/items/' + id);
   }
 
   function openLibrary() {
@@ -1437,14 +1413,11 @@ function Booth() {
     <div className="viewer">
       <div className="vbar">
         <div className="ef-sheet-head"><h1>BOOTH 浏览器</h1></div>
-        <div className="ef-search">
-          <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') search(); }} placeholder="搜索 BOOTH 商品" />
-        </div>
         <div className="ef-rows flat">
           <li>
             <span className="meta">URL</span>
             <span className="acts">
-              <input className="url" value={frameUrl} onChange={(e) => setFrameUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') openUrl(frameUrl); }} />
+              <input className="url" value={frameUrl} onChange={(e) => setFrameUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') openUrl(frameUrl); }} placeholder="https://booth.pm/zh-cn/items/6405390 或 6405390" />
               <button className="ef-btn small go" onClick={() => openUrl(frameUrl)}>在窗口打开</button>
             </span>
           </li>
@@ -1457,22 +1430,7 @@ function Booth() {
             </span>
           </li>
         </div>
-        {msg && <div className="ef-notice" data-flag="!">{msg}</div>}
         <div className="cands">
-          {busy && <div className="ef-empty">正在搜索…</div>}
-          {!libraryOpen && hits.map((h) => (
-            <div key={h.id} className="cand">
-              <div className="thumb" onClick={() => openItem(h.id)}>{h.imageUrl ? <img src={h.imageUrl} alt="" /> : <span className="noimg">{h.id}</span>}</div>
-              <div className="tt" onClick={() => openItem(h.id)}>{h.name}<span className="st">{h.brand} · {h.price} JPY</span></div>
-              <div className="sc">{h.id}</div>
-              <div className="acts">
-                <button className="ef-btn small go" onClick={() => openItem(h.id)}>打开</button>
-                <button className="ef-btn small" onClick={() => wishlist(h.id)}>喜欢</button>
-                <button className="ef-btn small" onClick={() => gift(h.id)}>Gift</button>
-              </div>
-            </div>
-          ))}
-          {!libraryOpen && hits.length === 0 && !busy && <div className="ef-empty">输入关键词搜索，BOOTH 商品页会在独立窗口打开。</div>}
           {libraryOpen && (
             <div className="stack">
               <div className="ef-group-head"><h2>已购资料库（{lib.items?.length || 0}）</h2><button className="ef-btn small" onClick={loadLibrary}>刷新</button></div>
@@ -1492,10 +1450,11 @@ function Booth() {
               ))}
             </div>
           )}
+          {!libraryOpen && <div className="ef-empty">输入商品链接或编号后点击「在窗口打开」，BOOTH 页面会在独立窗口打开；登录态与主窗口共享，下载会自动登记到「网络任务」。</div>}
         </div>
       </div>
       <div className="vdoc">
-        <div className="ef-empty">BOOTH 官方禁止页面被内嵌，商品页、搜索页与资料库均改为在独立窗口打开；登录态与主窗口共享，下载会自动登记到「网络任务」。</div>
+        <div className="ef-empty">BOOTH 官方禁止页面被内嵌，商品页与资料库均改为在独立窗口打开；登录态与主窗口共享，下载会自动登记到「网络任务」。</div>
       </div>
     </div>
   );
