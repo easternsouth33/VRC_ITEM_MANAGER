@@ -1,0 +1,36 @@
+{
+  "name": "vrc-asset-library",
+  "version": "0.8.0",
+  "private": true,
+  "description": "VRChat 素材整理 - 本地素材库、BOOTH 商品匹配与内置浏览器",
+  "author": "deepseek 及东南33",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node scripts/build.mjs && electron .",
+    "dev": "node scripts/dev.mjs",
+    "pack": "node scripts/build.mjs && electron-builder --win portable",
+    "dist": "node scripts/build.mjs && electron-builder --win portable nsis",
+    "test": "node --test test/unit/"
+  },
+  "dependencies": {
+    "cheerio": "1.2.0",
+    "yauzl": "3.4.0",
+    "node-unrar-js": "2.0.2",
+    "7z-wasm": "1.2.0",
+    "node-stream-zip": "1.16.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "esbuild": "0.28.0",
+    "electron": "45.1.0",
+    "electron-builder": "26.18.0",
+    "typescript": "5.9.3",
+    "@types/react": "19.2.0",
+    "@types/react-dom": "19.2.0",
+    "@types/node": "24.10.0"
+  },
+  "license": "MIT"
+}

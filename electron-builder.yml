@@ -1,0 +1,25 @@
+appId: com.yg.vrcassetlibrary
+productName: VRC素材整理
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - package.json
+asar: true
+compression: maximum
+win:
+  target:
+    - portable
+    - nsis
+  icon: build/icon.ico
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}
+nsis:
+  artifactName: ${productName}-Setup-${version}.${ext}
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/

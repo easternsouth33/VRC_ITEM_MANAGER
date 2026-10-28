@@ -1,0 +1,22 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+release/
+
+# 临时与测试残留
+.edge-tmp*/
+scripts/_*
+ui-mockup/shots/
+ui-mockup/_scan.json
+
+# 系统误建目录
+NVIDIA Corporation/
+%SystemDrive%/
+
+# 日志
+*.log
+
+# 本地数据（便携模式 exe 同目录数据）
+VRCAssetLibraryData/

@@ -1,0 +1,84 @@
+// 全局类型声明（renderer）
+export {};
+
+declare global {
+  interface Window {
+    vrc: {
+      platform: string;
+      getFilePath(file: File): string;
+      scanFolders(dirs: string[]): Promise<any>;
+      rootsList(): Promise<any[]>;
+      rootsAdd(dirs: string[]): Promise<any[]>;
+      galleryQuery(q: any): Promise<{ total: number; cards: any[] }>;
+      galleryCards(): Promise<any[]>;
+      cardDetail(id: number): Promise<any | null>;
+      cardFavorite(id: number, fav: boolean): Promise<any>;
+      cardNote(id: number, note: string): Promise<any>;
+      cardRelated(id: number, relatedId: number): Promise<any>;
+      relatedList(id: number): Promise<any[]>;
+      relatedRemove(id: number, relatedId: number): Promise<any[]>;
+      cardEditState(id: number, matchState: string): Promise<any>;
+      cardEditName(id: number, name: string): Promise<any>;
+      adaptList(assetId: number): Promise<any[]>;
+      adaptAdd(assetId: number, avatarName: string, note?: string): Promise<any[] | {ok:boolean;error:string}>;
+      adaptRemove(assetId: number, adaptationId: number): Promise<any[]>;
+      adaptNote(assetId: number, adaptationId: number, note: string): Promise<any[]>;
+      adaptBatchAdd(assetIds: number[], avatarName: string, note?: string): Promise<{ok:boolean;added:number;error?:string}>;
+      cardTouchOpened(id: number): Promise<any>;
+      recentList(limit?: number): Promise<any[]>;
+      compatEvidence(id: number): Promise<any[]>;
+      boothFetch(id: string): Promise<any>;
+      boothHydrateCovers(): Promise<{done:number,total:number}>;
+  boothSearch(query: string): Promise<any[]>;
+      matchCompute(assetId: number): Promise<any[]>;
+      matchApply(assetId: number, boothId: string, source: string): Promise<any>;
+      matchReject(assetId: number, boothId: string): Promise<any>;
+      matchSkip(assetId: number): Promise<any>;
+      matchUndo(assetId: number): Promise<any>;
+      categoryTree(): Promise<any[]>;
+      categoryAssign(assetId: number, categoryId: number, reason: string): Promise<any>;
+      categoryCreate(name: string, parentId?: number): Promise<any>;
+      categoryRename(id: number, name: string): Promise<any>;
+      categoryDelete(id: number): Promise<any>;
+      keywordAdd(assetId: number, keyword: string): Promise<string[]>;
+      keywordRemove(assetId: number, keyword: string): Promise<string[]>;
+      keywordBatch(assetIds: number[], add: string[], remove: string[]): Promise<any>;
+      collectionList(): Promise<any[]>;
+      collectionCreate(name: string): Promise<any[]>;
+      collectionAdd(collectionId: number, assetIds: number[]): Promise<any>;
+      collectionAssets(collectionId: number): Promise<any[]>;
+      collectionRemove(collectionId: number, assetId: number): Promise<any>;
+      collectionDelete(collectionId: number): Promise<any[]>;
+      netList(): Promise<any[]>;
+      netAdd(task: any): Promise<any[]>;
+      netPause(id: number): Promise<any[]>;
+      netResume(id: number): Promise<any[]>;
+      netRetry(id: number): Promise<any[]>;
+      netRemove(id: number): Promise<any[]>;
+      netSpeed(id: number): Promise<{ts:number,bps:number}[]>;
+      onNetProgress(cb: (tasks: any[]) => void): () => void;
+      openExternal(url: string): Promise<any>;
+      viewList(): Promise<any[]>;
+      viewSave(name: string, queryJson: string): Promise<any[]>;
+      viewDelete(id: number): Promise<any[]>;
+      viewApply(id: number): Promise<any>;
+      boothGiftUrl(id: string): Promise<string>;
+      netAddUrl(url: string, label: string, destPath?: string): Promise<any[]>;
+      settingsGet(): Promise<any>;
+      settingsSet(patch: any): Promise<any>;
+      pickFolders(): Promise<string[]>;
+      pickFiles(): Promise<string[]>;
+      showItem(p: string): Promise<any>;
+      dbBackup(): Promise<{ok:boolean;path?:string;error?:string}>;
+      dbRestore(): Promise<{ok:boolean;error?:string}>;
+      dbInfo(): Promise<{dataDir:string;dbPath:string;cards:number;boothItems:number}>;
+      openPath(p: string): Promise<any>;
+      archiveInspect(filePath: string): Promise<any>;
+      archiveExtract(filePath: string, destDir?: string): Promise<{ok:boolean;extracted:number;destDir:string;error?:string}>;
+      archiveExtractCard(assetId: number, destDir?: string): Promise<{ok:boolean;results:any[];error?:string}>;
+      openUnitypackage(assetId: number): Promise<{ok:boolean;path?:string;error?:string}>;
+      fingerprintFile(p: string): Promise<string>;
+      parseBoothRef(s: string): Promise<string | null>;
+    };
+  }
+}
