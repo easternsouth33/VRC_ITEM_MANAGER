@@ -33,6 +33,7 @@ declare global {
       matchCompute(assetId: number): Promise<any[]>;
       matchApply(assetId: number, boothId: string, source: string): Promise<any>;
       matchReject(assetId: number, boothId: string): Promise<any>;
+      matchApplyBatch(assetIds: number[], boothId: string, source: string): Promise<any>;
       matchSkip(assetId: number): Promise<any>;
       matchUndo(assetId: number): Promise<any>;
       categoryTree(): Promise<any[]>;
@@ -58,6 +59,8 @@ declare global {
       netSpeed(id: number): Promise<{ts:number,bps:number}[]>;
       onNetProgress(cb: (tasks: any[]) => void): () => void;
       openExternal(url: string): Promise<any>;
+      boothOpen(url: string): Promise<{ok:boolean;error?:string}>;
+      updateCheck(): Promise<any>;
       viewList(): Promise<any[]>;
       viewSave(name: string, queryJson: string): Promise<any[]>;
       viewDelete(id: number): Promise<any[]>;

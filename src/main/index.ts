@@ -49,8 +49,8 @@ async function createWindow() {
     height: 900,
     minWidth: 900,
     minHeight: 640,
-    backgroundColor: '#F4F4F2',
-    show: false,
+    backgroundColor: '#161616',
+    show: true,
     title: 'VRC素材整理',
     webPreferences: {
       preload,
@@ -62,7 +62,8 @@ async function createWindow() {
     },
   });
 
-  mainWindow.once('ready-to-show', () => mainWindow?.show());
+  // 窗口已 show:true 立即显示；ready-to-show 仅作兜底（首帧绘制后确保可见）
+  mainWindow.once('ready-to-show', () => { if (mainWindow && !mainWindow.isVisible()) mainWindow.show(); });
   await mainWindow.loadFile(html);
 
   mainWindow.on('closed', () => { mainWindow = null; });

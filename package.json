@@ -1,6 +1,6 @@
 {
   "name": "vrc-asset-library",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "description": "VRChat 素材整理 - 本地素材库、BOOTH 商品匹配与内置浏览器",
   "author": "deepseek 及东南33",

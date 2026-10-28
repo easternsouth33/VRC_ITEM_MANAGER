@@ -63,8 +63,19 @@ function App() {
   const [booting, setBooting] = useState(true);
 
   useEffect(() => {
+    // 摘除 index.html 里的静态启动画面（React 已挂载，splash 为纯 CSS 动画）
+    try { document.getElementById('boot-splash')?.remove(); } catch {}
     window.vrc?.settingsGet?.().then((s: any) => { setSettings(s); applySettingsToDom(s); }).catch(() => {});
   }, []);
+  const [upd, setUpd] = useState<any>(null);
+
+  // 启动后静默检查 GitHub 最新发布，有新版本则弹更新提示
+  useEffect(() => {
+    window.vrc?.updateCheck?.().then((info: any) => {
+      if (info?.updateAvailable) setUpd(info);
+    }).catch(() => {});
+  }, []);
+
 
   const page = route.page;
 
@@ -110,6 +121,7 @@ function App() {
         <main id="ef" className="ef-pad">
           <div className="page-stage" key={page + (route.id ? '/' + route.id : '')}>{content}</div>
         </main>
+        {upd?.updateAvailable && <UpdateNotice info={upd} onClose={() => setUpd(null)} />}
       </div>
     </>
   );
@@ -165,6 +177,9 @@ function Welcome({ onGo }: { onGo: () => void }) {
   const [roots, setRoots] = useState<any[]>([]);
   const [progress, setProgress] = useState<string>('');
   const [drag, setDrag] = useState(false);
+  // m04241：拖入/扫描后按文件名自动搜 BOOTH，弹出约 3 条候选供选择
+  const [picks, setPicks] = useState<any[]>([]);
+  const [picking, setPicking] = useState(false);
 
   useEffect(() => {
     window.vrc?.rootsList?.().then(setRoots).catch(() => {});
@@ -187,15 +202,20 @@ function Welcome({ onGo }: { onGo: () => void }) {
       await window.vrc.scanFolders(dirs);
     }
     let added = 0;
+    const newPicks: any[] = [];
     if (archives.length) {
       setProgress('读取压缩包名称并建卡 ' + archives.length + ' 个…');
       for (const a of archives) {
         const r = await window.vrc.archiveInspect(a);
-        if (r?.cardId) added++;
+        if (r?.cardId) {
+          added++;
+          if (r?.candidates?.length) newPicks.push({ name: r.name || a, cardId: r.cardId, candidates: r.candidates });
+        }
       }
     }
     setProgress((dirs.length ? '已扫描 ' + dirs.length + ' 个文件夹' : '') + (archives.length ? '，登记 ' + archives.length + ' 个压缩包并建卡 ' + added + ' 张' : ''));
-    onGo();
+    if (newPicks.length) { setPicks(newPicks); setPicking(true); }
+    else onGo();
   }
 
   async function pickFolders() {
@@ -213,12 +233,29 @@ function Welcome({ onGo }: { onGo: () => void }) {
     if (!files.length) return;
     setProgress('读取压缩包名称并建卡…');
     let added = 0;
+    const newPicks: any[] = [];
     for (const f of files) {
       const r = await window.vrc.archiveInspect(f);
-      if (r?.cardId) added++;
+      if (r?.cardId) {
+        added++;
+        if (r?.candidates?.length) newPicks.push({ name: r.name || f, cardId: r.cardId, candidates: r.candidates });
+      }
     }
     setProgress('已登记 ' + files.length + ' 个压缩包并建卡 ' + added + ' 张');
+    if (newPicks.length) { setPicks(newPicks); setPicking(true); }
   }
+
+  async function choosePick(p: any, boothId: string) {
+    try {
+      await window.vrc.matchApply(p.cardId, boothId, 'search');
+    } catch (e: any) { /* 关联失败忽略，保持候选 */ }
+    // 从候选列表移除该条
+    setPicks((prev) => prev.filter((x) => x !== p));
+  }
+  function dismissPick(p: any) {
+    setPicks((prev) => prev.filter((x) => x !== p));
+  }
+  function donePicking() { setPicking(false); setPicks([]); onGo(); }
 
   return (
     <div
@@ -246,6 +283,38 @@ function Welcome({ onGo }: { onGo: () => void }) {
         ))}
       </div>
       {progress && <div className="ef-notice" data-flag="!">{progress}</div>}
+
+      {picking && picks.length > 0 && (
+        <div className="stack" style={{ marginTop: '1.5rem' }}>
+          <div className="ef-sheet-head">
+            <h2>选择 BOOTH 商品</h2>
+            <div className="ef-facts"><span className="ef-field">{picks.length} 个待选择</span></div>
+          </div>
+          {picks.map((p, pi) => (
+            <div key={pi} className="mrow">
+              <div className="ef-group-head"><span className="nm">{p.name}</span></div>
+              <div className="cands">
+                {p.candidates.map((c: any) => (
+                  <div key={c.boothItemId} className="cand">
+                    <div className="thumb">{c.imageUrl ? <img src={c.imageUrl} alt="" /> : <span className="noimg">{c.boothItemId}</span>}</div>
+                    <div className="tt">{c.name}<span className="st">{c.shopName}{c.price ? ' · ' + c.price + ' JPY' : ''}</span></div>
+                    <div className="acts">
+                      <button className="ef-btn small go" onClick={() => choosePick(p, c.boothItemId)}>选定</button>
+                    </div>
+                  </div>
+                ))}
+                {p.candidates.length === 0 && <div className="ef-empty">没有搜索到候选。</div>}
+              </div>
+              <div className="acts" style={{ marginTop: '0.5rem' }}>
+                <button className="ef-btn small" onClick={() => dismissPick(p)}>跳过</button>
+              </div>
+            </div>
+          ))}
+          <div className="ef-actions">
+            <button className="ef-btn small go" onClick={donePicking}>完成</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -277,6 +346,7 @@ function Gallery() {
   const [bKw, setBKw] = useState('');
   const [bCat, setBCat] = useState<number | null>(null);
   const [msgB, setMsgB] = useState('');
+  const [groupBy, setGroupBy] = useState(false);
   const syntax = useMemo(() => parseMiniSyntax(q), [q]);
 
   useEffect(() => {
@@ -333,6 +403,20 @@ function Gallery() {
     setSel(new Set(filtered.map((c) => c.id)));
   }
 
+  const groupedCards = useMemo(() => {
+    const m = new Map<string, { key: string; boothId: string; boothName: string; items: any[] }>();
+    for (const c of filtered) {
+      const key = c.booth_id || 'none';
+      if (!m.has(key)) m.set(key, { key, boothId: c.booth_id || '', boothName: c.booth_name || '', items: [] });
+      m.get(key)!.items.push(c);
+    }
+    return Array.from(m.values()).sort((a, b) => {
+      if (!a.boothId && b.boothId) return 1;
+      if (a.boothId && !b.boothId) return -1;
+      return (a.boothId || '').localeCompare(b.boothId || '');
+    });
+  }, [filtered]);
+
   const totals = useMemo(() => ({
     cards: cards.length,
     matched: cards.filter((c) => c.match_state !== 'pending').length,
@@ -365,6 +449,7 @@ function Gallery() {
             <button key={c.id} className={'ef-chip' + (cat === c.id ? ' is-on' : '')} aria-pressed={cat === c.id} onClick={() => setCat(c.id)}>{c.name}<span className="n">{c.cardCount}</span></button>
           ))}
           <button className={'ef-chip' + (fav ? ' is-on' : '')} aria-pressed={fav} onClick={() => setFav(!fav)}>★ 收藏<span className="n">{cards.filter((c) => c.favorite).length}</span></button>
+          <button className={'ef-chip' + (groupBy ? ' is-on' : '')} aria-pressed={groupBy} onClick={() => setGroupBy(!groupBy)}>▦ 按商品分组</button>
         </div>
         <div className="chips" style={{ marginTop: '0.5rem' }}>
           <button className={'ef-chip' + (batchMode ? ' is-on' : '')} aria-pressed={batchMode} onClick={() => { setBatchMode(!batchMode); setSel(new Set()); }}>批量标注</button>
@@ -399,10 +484,24 @@ function Gallery() {
         )}
         {msgB && <div className="ef-notice" data-flag="!">{msgB}</div>}
         {loading ? <div className="ef-empty">正在读取素材…</div> : (
-          <div className="wall">
-            {filtered.map((c) => <GalleryCard key={c.id} c={c} selected={sel.has(c.id)} onToggle={toggleSel} batchMode={batchMode} />)}
-            {filtered.length === 0 && <div className="ef-empty">没有符合条件的素材，试试放宽筛选。</div>}
-          </div>
+          groupBy ? (
+            <div className="gwall">
+              {groupedCards.map((g) => (
+                <section key={g.key} className="gblock">
+                  <div className="ghead"><span className="ef-field">#{g.boothId || '未匹配'}</span><span className="gt">{g.boothName || (g.boothId ? 'BOOTH 商品' : '未匹配商品')}</span><span className="ef-field">{g.items.length} 项</span></div>
+                  <div className="wall">
+                    {g.items.map((c) => <GalleryCard key={c.id} c={c} selected={sel.has(c.id)} onToggle={toggleSel} batchMode={batchMode} />)}
+                  </div>
+                </section>
+              ))}
+              {groupedCards.length === 0 && <div className="ef-empty">没有符合条件的素材，试试放宽筛选。</div>}
+            </div>
+          ) : (
+            <div className="wall">
+              {filtered.map((c) => <GalleryCard key={c.id} c={c} selected={sel.has(c.id)} onToggle={toggleSel} batchMode={batchMode} />)}
+              {filtered.length === 0 && <div className="ef-empty">没有符合条件的素材，试试放宽筛选。</div>}
+            </div>
+          )
         )}
       </div>
       <aside className="board">
@@ -964,6 +1063,9 @@ function Match() {
   const [manualRef, setManualRef] = useState('');
   const [msg, setMsg] = useState('');
   const [tab, setTab] = useState<'todo' | 'history'>('todo');
+  const [sel, setSel] = useState<Set<number>>(new Set());
+  const [batchMode, setBatchMode] = useState(false);
+  const [batchRef, setBatchRef] = useState('');
 
   const queue = useMemo(() => all.filter((c: any) => c.match_state === 'pending' || c.match_state === 'suggested'), [all]);
   const history = useMemo(() => all.filter((c: any) => c.match_state === 'skipped' || c.match_state === 'rejected'), [all]);
@@ -974,6 +1076,14 @@ function Match() {
     return window.vrc.galleryCards().then((r: any[]) => setAll(r));
   }
   useEffect(() => { reload().catch(() => {}); }, []);
+
+  function toggleSel(id: number) {
+    setSel((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }
+  function selectAllVisible() {
+    setSel((prev) => { const n = new Set(prev); queue.forEach((c) => n.add(c.id)); return n; });
+  }
+  function clearSel() { setSel(new Set()); }
 
   async function compute(c: any) {
     setBusy(true); setCurrent(c); setMsg('');
@@ -997,6 +1107,22 @@ function Match() {
     setBusy(false);
   }
 
+  async function batchApply() {
+    const ref = batchRef.trim();
+    if (!ref) { setMsg('请先填写 BOOTH 编号或链接'); return; }
+    if (sel.size === 0) { setMsg('请先勾选要关联的素材'); return; }
+    setBusy(true); setMsg('');
+    try {
+      const id = await window.vrc.parseBoothRef(ref);
+      if (!id) { setMsg('无法识别该链接/编号'); setBusy(false); return; }
+      const info = await window.vrc.boothFetch(String(id));
+      const r = await window.vrc.matchApplyBatch(Array.from(sel), info.id, 'manual');
+      setBatchRef(''); clearSel(); setMsg('已把 ' + (r?.updated ?? sel.size) + ' 个素材关联到 ' + info.name + '（' + info.id + '）');
+      await reload();
+    } catch (e: any) { setMsg('批量关联失败：' + e.message); }
+    setBusy(false);
+  }
+
   function undo() {
     if (!current) return;
     window.vrc.matchUndo(current.id).then(() => { setCands([]); setMsg('已撤回，恢复待匹配'); reload(); });
@@ -1013,14 +1139,21 @@ function Match() {
         <div className="chips" style={{ marginBottom: '0.5rem' }}>
           <button className={'ef-chip' + (tab === 'todo' ? ' is-on' : '')} aria-pressed={tab === 'todo'} onClick={() => setTab('todo')}>待处理<span className="n">{queue.length}</span></button>
           <button className={'ef-chip' + (tab === 'history' ? ' is-on' : '')} aria-pressed={tab === 'history'} onClick={() => setTab('history')}>跳过 / 排除<span className="n">{history.length}</span></button>
+          <button className={'ef-chip' + (batchMode ? ' is-on' : '')} aria-pressed={batchMode} onClick={() => { setBatchMode(!batchMode); if (!batchMode) setSel(new Set()); }}>多选<span className="n">{sel.size}</span></button>
         </div>
+        {batchMode && tab === 'todo' && (
+          <div className="ef-notice" data-flag="!">多选模式：勾选多个素材后，在右侧统一输入一个 BOOTH 编号批量关联。</div>
+        )}
         {tab === 'todo' && (
           <div className="mrow">
             {queue.map((c) => (
-              <div key={c.id} className={'mcard' + (current?.id === c.id ? ' is-on' : '')} onClick={() => compute(c)}>
-                <div className="thumb">{c.cover_path ? <img src={c.cover_path} alt="" /> : <span className="noimg">{c.booth_id}</span>}</div>
+              <div key={c.id} className={'mcard' + (current?.id === c.id ? ' is-on' : '') + (sel.has(c.id) ? ' is-picked' : '')}>
+                {batchMode ? (
+                  <button className="pickbox" aria-pressed={sel.has(c.id)} onClick={() => toggleSel(c.id)}>{sel.has(c.id) ? '✓' : ''}</button>
+                ) : null}
+                <div className="thumb" onClick={() => batchMode ? toggleSel(c.id) : compute(c)}>{c.cover_path ? <img src={c.cover_path} alt="" /> : <span className="noimg">{c.booth_id}</span>}</div>
                 <div className="nm">{c.name}</div>
-                <div className="meta"><span className="ef-field">{fmtBytes(c.size)}</span></div>
+                <div className="meta"><span className="ef-field">{fmtBytes(c.size)}</span>{c.booth_id ? <span className="ef-field">#{c.booth_id}</span> : null}</div>
               </div>
             ))}
             {queue.length === 0 && <div className="ef-empty">没有待匹配的素材。</div>}
@@ -1043,24 +1176,32 @@ function Match() {
         )}
       </div>
       <div className="stack">
-        <div className="ef-sheet-head"><h2>候选</h2><div className="ef-facts"><span className="ef-field">{cands.length} 条</span></div></div>
+        <div className="ef-sheet-head"><h2>{batchMode ? '批量关联' : '候选'}</h2><div className="ef-facts"><span className="ef-field">{batchMode ? sel.size + ' 已选' : cands.length + ' 条'}</span></div></div>
         {busy && <div className="ef-empty">正在搜索 BOOTH…</div>}
         {msg && <div className="ef-notice" data-flag="!">{msg}</div>}
-        <div className="cands">
-          {cands.map((c) => (
-            <div key={c.boothItemId} className="cand">
-              <div className="thumb">{c.imageUrl ? <img src={c.imageUrl} alt="" /> : <span className="noimg">{c.boothItemId}</span>}</div>
-              <div className="tt">{c.name}<span className="st">{c.shopName} · {c.price} JPY</span></div>
-              <div className="sc">{Math.round((c.score || 0) * 100)}%</div>
-              <div className="acts">
-                <button className="ef-btn small go" onClick={() => window.vrc.matchApply(current.id, c.boothItemId, 'manual').then(() => { compute(current); reload(); })}>选定</button>
-                <button className="ef-btn small danger" onClick={() => window.vrc.matchReject(current.id, c.boothItemId).then(() => compute(current))}>排除</button>
+        {batchMode && (
+          <div className="ef-rows flat" style={{ marginTop: 0 }}>
+            <li><span className="meta">BOOTH 编号 / 链接</span><span className="acts"><input className="ef-search" value={batchRef} onChange={(e) => setBatchRef(e.target.value)} placeholder="booth.pm/ja/items/6405390 或 6405390" style={{ flex: 1, minWidth: 0 }} /><button className="ef-btn small go" disabled={busy || sel.size === 0} onClick={batchApply}>批量关联</button></span></li>
+            <li><span className="meta">已勾选 {sel.size} 个素材</span><span className="acts"><button className="ef-btn small" onClick={selectAllVisible}>全选当前</button><button className="ef-btn small" onClick={clearSel}>清空</button></span></li>
+          </div>
+        )}
+        {!batchMode && (
+          <div className="cands">
+            {cands.map((c) => (
+              <div key={c.boothItemId} className="cand">
+                <div className="thumb">{c.imageUrl ? <img src={c.imageUrl} alt="" /> : <span className="noimg">{c.boothItemId}</span>}</div>
+                <div className="tt">{c.name}<span className="st">{c.shopName} · {c.price} JPY</span></div>
+                <div className="sc">{Math.round((c.score || 0) * 100)}%</div>
+                <div className="acts">
+                  <button className="ef-btn small go" onClick={() => window.vrc.matchApply(current.id, c.boothItemId, 'manual').then(() => { compute(current); reload(); })}>选定</button>
+                  <button className="ef-btn small danger" onClick={() => window.vrc.matchReject(current.id, c.boothItemId).then(() => compute(current))}>排除</button>
+                </div>
               </div>
-            </div>
-          ))}
-          {cands.length === 0 && !busy && current && <div className="ef-empty">没有候选，可在下方手动填写编号/链接关联。</div>}
-        </div>
-        {current && (
+            ))}
+            {cands.length === 0 && !busy && current && <div className="ef-empty">没有候选，可在下方手动填写编号/链接关联。</div>}
+          </div>
+        )}
+        {!batchMode && current && (
           <div className="ef-rows flat" style={{ marginTop: '1rem' }}>
             <li><span className="meta">当前：{current.name}</span><span className="acts"><button className="ef-btn small" onClick={() => window.vrc.matchSkip(current.id).then(() => { setCurrent(null); setCands([]); setMsg(''); reload(); })}>跳过</button><button className="ef-btn small" onClick={undo}>撤回</button></span></li>
             <li><span className="meta">手动编号 / 链接</span><span className="acts"><input className="ef-search" value={manualRef} onChange={(e) => setManualRef(e.target.value)} placeholder="booth.pm/ja/items/6405390 或 6405390" style={{ flex: 1, minWidth: 0 }} /><button className="ef-btn small go" disabled={busy} onClick={manualApply}>关联</button></span></li>
@@ -1070,7 +1211,6 @@ function Match() {
     </div>
   );
 }
-
 // ---------- 分类 ----------
 function Classify() {
   const [tree, setTree] = useState<any[]>([]);
@@ -1236,6 +1376,14 @@ function Booth() {
   const [lib, setLib] = useState<any>({ loggedIn: false, items: [] });
   const [libLoaded, setLibLoaded] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  // BOOTH 官方对商品/搜索页返回 X-Frame-Options: SAMEORIGIN，iframe 会被拦截，
+  // 因此统一改为在独立子窗口（persist:booth 共享登录态）中打开。
+  function openUrl(url: string) {
+    setFrameUrl(url);
+    window.vrc?.boothOpen?.(url);
+  }
 
   async function search() {
     if (!q.trim()) return;
@@ -1243,7 +1391,9 @@ function Booth() {
     try {
       const h = await window.vrc.boothSearch(q.trim());
       setHits(h);
-      setFrameUrl('https://booth.pm/ja/search/' + encodeURIComponent(q.trim()));
+      const u = 'https://booth.pm/ja/search/' + encodeURIComponent(q.trim());
+      setFrameUrl(u);
+      openUrl(u);
     } catch (e) {
       setHits([]);
     }
@@ -1251,12 +1401,14 @@ function Booth() {
   }
 
   function openItem(id: string) {
-    setFrameUrl('https://booth.pm/ja/items/' + id);
+    openUrl('https://booth.pm/ja/items/' + id);
   }
 
   function openLibrary() {
     setLibraryOpen(true);
-    setFrameUrl('https://accounts.booth.pm/library');
+    const u = 'https://accounts.booth.pm/library';
+    setFrameUrl(u);
+    openUrl(u);
     loadLibrary();
   }
 
@@ -1273,20 +1425,13 @@ function Booth() {
 
   async function wishlist(id: string) {
     const url = await window.vrc.boothWishlistUrl(id);
-    setFrameUrl(url);
+    openUrl(url);
   }
 
   async function gift(id: string) {
     const url = await window.vrc.boothGiftUrl(id);
-    setFrameUrl(url);
+    openUrl(url);
   }
-
-  function applyCurrent(id: string, name: string) {
-    // 由匹配页处理关联；这里仅提示可在商品页使用「应用到当前素材」
-    setMsg('已打开 ' + id + ' ' + name);
-  }
-
-  const [msg, setMsg] = useState('');
 
   return (
     <div className="viewer">
@@ -1299,14 +1444,14 @@ function Booth() {
           <li>
             <span className="meta">URL</span>
             <span className="acts">
-              <input className="url" value={frameUrl} onChange={(e) => setFrameUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') setFrameUrl(frameUrl); }} />
-              <button className="ef-btn small go" onClick={() => setFrameUrl(frameUrl)}>打开</button>
+              <input className="url" value={frameUrl} onChange={(e) => setFrameUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') openUrl(frameUrl); }} />
+              <button className="ef-btn small go" onClick={() => openUrl(frameUrl)}>在窗口打开</button>
             </span>
           </li>
           <li>
             <span className="meta">登录 / 资料库</span>
             <span className="acts">
-              <button className="ef-btn small" onClick={() => setFrameUrl('https://accounts.booth.pm/')}>官方登录</button>
+              <button className="ef-btn small" onClick={() => openUrl('https://accounts.booth.pm/')}>官方登录</button>
               <button className="ef-btn small go" onClick={openLibrary}>已购资料库</button>
               {libLoaded && <span className={'ef-state' + (lib.loggedIn ? '' : ' is-draft')}>{lib.loggedIn ? '已登录' : '未登录'}</span>}
             </span>
@@ -1327,7 +1472,7 @@ function Booth() {
               </div>
             </div>
           ))}
-          {!libraryOpen && hits.length === 0 && !busy && <div className="ef-empty">输入关键词搜索，或在下方浏览商品页。</div>}
+          {!libraryOpen && hits.length === 0 && !busy && <div className="ef-empty">输入关键词搜索，BOOTH 商品页会在独立窗口打开。</div>}
           {libraryOpen && (
             <div className="stack">
               <div className="ef-group-head"><h2>已购资料库（{lib.items?.length || 0}）</h2><button className="ef-btn small" onClick={loadLibrary}>刷新</button></div>
@@ -1350,7 +1495,7 @@ function Booth() {
         </div>
       </div>
       <div className="vdoc">
-        <iframe title="BOOTH" src={frameUrl} sandbox="allow-same-origin allow-forms allow-scripts allow-popups allow-downloads" style={{ width: '100%', height: '100%', border: 'none', background: '#fff' }} />
+        <div className="ef-empty">BOOTH 官方禁止页面被内嵌，商品页、搜索页与资料库均改为在独立窗口打开；登录态与主窗口共享，下载会自动登记到「网络任务」。</div>
       </div>
     </div>
   );
@@ -1581,6 +1726,24 @@ function Settings({ settings, reload }: { settings: any; reload: () => void }) {
       </div>
       <div className="ef-notice" data-flag="i">设置即时保存到本地资料库。</div>
     </div>
+  );
+}
+
+// ---------- 更新提示（跟随 GitHub 最新发布） ----------
+function UpdateNotice({ info, onClose }: { info: any; onClose: () => void }) {
+  return (
+    <dialog className="ef-dialog" open onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="ef-panel cut-br">
+        <div className="ef-eyebrow slash">UPDATE / 更新</div>
+        <h2>发现新版本 v{info.latest}</h2>
+        <p>当前版本 v{info.current}。{info.name ? '最新发布：' + info.name : ''}</p>
+        {info.notes ? <div className="ef-prose" style={{ whiteSpace: 'pre-wrap', maxHeight: '16rem', overflow: 'auto', marginBottom: '1rem' }}>{info.notes}</div> : null}
+        <div className="ef-actions">
+          <button className="ef-btn small" onClick={onClose}>稍后再说</button>
+          <button className="ef-btn small go" onClick={() => { if (info.downloadUrl) window.vrc?.openExternal?.(info.downloadUrl); onClose(); }}>前往下载</button>
+        </div>
+      </div>
+    </dialog>
   );
 }
 

@@ -48,7 +48,7 @@ function persistCard(db: Db, rootId: number, rootKey: string, card: ScanResult, 
     score = matchState === 'auto' ? 1 : null;
   }
   // 关键词分类（人工优先，计划书 §5.6）
-  const cat = inferKeywordCategory(db, card.name);
+  const cat = null; // 不再自动分类：匹配后由用户亲自选择类别（计划书 §5.5）
   const kind = card.foldedOf ? 'fold' : (card.kind === 'dir' ? 'dir' : 'file');
   // 拍平成员：折叠卡/目录卡的成员 = 自身直接子项 + 子目录树全部成员（保留各层路径，计划书 §5.1 第六条）
   const members = collectMembers(card, '');
@@ -57,7 +57,7 @@ function persistCard(db: Db, rootId: number, rootKey: string, card: ScanResult, 
     `INSERT INTO assets(name,kind,root_id,root_key,booth_id,match_state,score,category_id,category_reason,size,files,dirs,version_text,base,sample,fold_of,fold_parent,updated_at,created_at)
      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))`,
     card.name, kind, rootId, rootKey, boothId, matchState, score,
-    cat ? cat.id : null, cat ? 'keyword:' + cat.norm : null,
+    null, null,
     card.size, card.files, card.dirs, card.versionText, card.base, card.sample, card.foldedOf, foldParent
   );
   const assetId = Number(r.lastInsertRowid);

@@ -38,6 +38,7 @@ const api = {
   matchCompute: (assetId: number) => ipcRenderer.invoke('match:compute', assetId),
   matchApply: (assetId: number, boothId: string, source: string) => ipcRenderer.invoke('match:apply', assetId, boothId, source),
   matchReject: (assetId: number, boothId: string) => ipcRenderer.invoke('match:reject', assetId, boothId),
+  matchApplyBatch: (assetIds: number[], boothId: string, source: string) => ipcRenderer.invoke('match:apply-batch', assetIds, boothId, source),
   matchSkip: (assetId: number) => ipcRenderer.invoke('match:skip', assetId),
   matchUndo: (assetId: number) => ipcRenderer.invoke('match:undo', assetId),
   // 分类
@@ -80,6 +81,8 @@ const api = {
   netAddUrl: (url: string, label: string, destPath?: string) => ipcRenderer.invoke('net:add-url', url, label, destPath),
   // 浏览器
   openExternal: (url: string) => ipcRenderer.invoke('browser:open-external', url),
+  boothOpen: (url: string) => ipcRenderer.invoke('booth:open', url),
+  updateCheck: () => ipcRenderer.invoke('update:check'),
   // 设置
   settingsGet: () => ipcRenderer.invoke('settings:get'),
   settingsSet: (patch: unknown) => ipcRenderer.invoke('settings:set', patch),

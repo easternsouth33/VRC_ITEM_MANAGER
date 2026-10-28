@@ -12,10 +12,10 @@ import { extractArchive, isUnitypackage } from './extract';
 import type { DownloadEngine } from './downloader';
 import { collectBoothIds, parseBoothRef } from '../shared/booth-id';
 import { scoreMatch, matchStateFor, DROP_THRESHOLD } from '../shared/score';
-import { mapBoothCategory } from '../shared/category-map';
 import { normalizeName, normalizeKeyword, stripVersion } from '../shared/normalize';
 import type { CardSummary, GalleryQuery, GalleryPage, Settings, NetTask, CardDetail, MatchCandidate, BoothInfo, CategoryNode, CompatEvidence } from '../shared/types';
 import { buildCompatEvidence, collectCompatHits } from '../shared/compat';
+import { checkUpdate } from './updater';
 
 export function registerIpc(db: Db, getWindow: () => BrowserWindow | null, state: { boothCookie: string; netTasks: Map<number, AbortController> }, downloader: DownloadEngine) {
   // ---- 扫描 ----
@@ -62,6 +62,7 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null, state
   ipcMain.handle('gallery:cards', async () => {
     const cards = db.all(`SELECT a.id,a.name,a.kind,a.root_key,a.booth_id,a.match_state,a.score,a.category_id,a.category_reason,a.size,a.files,a.dirs,a.cover_path,a.favorite,a.hidden,a.unavailable,a.version_text,a.updated_at,a.base,
       b.image_url AS booth_image,
+      b.name AS booth_name,
       (SELECT GROUP_CONCAT(DISTINCT f.ext) FROM asset_files f WHERE f.asset_id = a.id) AS exts,
       cat.name AS category_name
       FROM assets a LEFT JOIN booth_items b ON a.booth_id = b.booth_id LEFT JOIN categories cat ON cat.id = a.category_id
@@ -175,18 +176,25 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null, state
   });
 
   ipcMain.handle('match:apply', async (_e, assetId: number, boothId: string, source: 'auto' | 'search' | 'manual') => {
-    const booth = db.get('SELECT * FROM booth_items WHERE booth_id = ?', boothId);
-    const cat = booth ? mapBoothCategory(booth.category_name as string | null, booth.category_parent as string | null) : null;
-    db.exec(`UPDATE assets SET booth_id=?, match_state='manual', category_reason=?, updated_at=datetime('now') WHERE id=?`,
-      boothId, cat ? 'booth:' + cat : 'booth', assetId);
-    if (cat) {
-      const catRow = db.get('SELECT id FROM categories WHERE name = ?', cat);
-      if (catRow) db.exec('UPDATE assets SET category_id=? WHERE id=?', (catRow as any).id, assetId);
-    }
+    // 匹配只关联 BOOTH 商品，不自动分类：类别由用户亲自选择（计划书 §5.5）
+    db.exec(`UPDATE assets SET booth_id=?, match_state='manual', updated_at=datetime('now') WHERE id=?`,
+      boothId, assetId);
     db.exec(`INSERT INTO match_history(asset_id,booth_id,action,from_state,to_state) VALUES(?,?,?,?,?)`, assetId, boothId, 'apply', 'pending', 'manual');
     return { ok: true };
   });
 
+  ipcMain.handle('match:apply-batch', async (_e, assetIds: number[], boothId: string, source: 'auto' | 'search' | 'manual') => {
+    // 批量关联同一 BOOTH 商品（不自动分类，类别由用户亲自选择）
+    if (!Array.isArray(assetIds) || assetIds.length === 0) return { ok: false, error: '未选择任何素材' };
+    const ids = assetIds.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0);
+    if (ids.length === 0) return { ok: false, error: '素材编号无效' };
+    const placeholders = ids.map(() => '?').join(',');
+    db.exec(`UPDATE assets SET booth_id=?, match_state='manual', updated_at=datetime('now') WHERE id IN (${placeholders})`, boothId, ...ids);
+    for (const id of ids) {
+      db.exec(`INSERT INTO match_history(asset_id,booth_id,action,from_state,to_state) VALUES(?,?,?,?,?)`, id, boothId, 'apply', 'pending', 'manual');
+    }
+    return { ok: true, updated: ids.length };
+  });
   ipcMain.handle('match:reject', async (_e, assetId: number, boothId: string) => {
     db.exec(`UPDATE assets SET match_state='rejected', updated_at=datetime('now') WHERE id=?`, assetId);
     db.exec(`INSERT INTO match_history(asset_id,booth_id,action,from_state,to_state) VALUES(?,?,?,?,?)`, assetId, boothId, 'reject', 'suggested', 'rejected');
@@ -250,9 +258,7 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null, state
     const norm = normalizeKeyword(keyword);
     const exists = db.get('SELECT id FROM asset_keywords WHERE asset_id=? AND keyword_norm=?', assetId, norm);
     if (!exists) {
-      db.exec('INSERT INTO asset_keywords(asset_id,keyword,keyword_norm,source) VALUES(?,?,?,?)', assetId, keyword.trim(), norm, 'manual');
-      // 关键词触发分类（计划书 §5.6）
-      applyKeywordCategory(db, assetId, norm);
+      db.exec('INSERT INTO asset_keywords(asset_id,keyword,keyword_norm,source) VALUES(?,?,?,?)', assetId, keyword.trim(), norm, 'manual'); // 关键词仅作标签，不再触发分类
     }
     return db.all('SELECT keyword FROM asset_keywords WHERE asset_id=?', assetId).map((r: any) => r.keyword);
   });
@@ -269,7 +275,6 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null, state
         const norm = normalizeKeyword(k);
         if (!db.get('SELECT id FROM asset_keywords WHERE asset_id=? AND keyword_norm=?', id, norm)) {
           db.exec('INSERT INTO asset_keywords(asset_id,keyword,keyword_norm,source) VALUES(?,?,?,?)', id, k.trim(), norm, 'manual');
-          applyKeywordCategory(db, id, norm);
         }
       }
       for (const k of remove) {
@@ -441,6 +446,43 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null, state
     return { ok: true };
   });
 
+  // 内置 BOOTH 浏览器窗口：BOOTH 官方对商品/搜索页返回 X-Frame-Options: SAMEORIGIN，
+  // 无法在 renderer iframe 内嵌；改为独立子窗口（partition persist:booth 共享登录态），
+  // 下载登记仍由 boothSession 的 will-download 统一接管。
+  ipcMain.handle('booth:open', async (_e, url: string) => {
+    if (!/^https?:\/\//.test(url)) return { ok: false, error: '无效地址' };
+    const parent = getWindow();
+    const win = new BrowserWindow({
+      width: 1280,
+      height: 880,
+      minWidth: 640,
+      minHeight: 480,
+      title: 'BOOTH',
+      backgroundColor: '#F4F4F2',
+      parent: parent ?? undefined,
+      autoHideMenuBar: true,
+      webPreferences: {
+        partition: 'persist:booth',
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        spellcheck: false,
+      },
+    });
+    try {
+      await win.loadURL(url);
+      return { ok: true };
+    } catch (e: any) {
+      win.destroy();
+      return { ok: false, error: String(e?.message || e) };
+    }
+  });
+
+  // 检查 GitHub 最新发布（自动更新提示）
+  ipcMain.handle('update:check', async () => {
+    return checkUpdate();
+  });
+
   // ---- 设置 ----
   ipcMain.handle('settings:get', async () => {
     return getSettings(db);
@@ -546,7 +588,20 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null, state
     const manifest = await inspectArchive(filePath);
     const saved = saveManifest(getDataDir(db), filePath, manifest);
     const cardId = upsertArchiveCard(db, filePath, manifest);
-    return { manifest, saved, cardId };
+    // m04241：拖入后自动用文件名搜索 BOOTH，返回约 3 条候选供选择（编号已自动命中则跳过）
+    let candidates: MatchCandidate[] = [];
+    const card = db.get<{ base: string | null; name: string; match_state: string }>('SELECT base,name,match_state FROM assets WHERE id=?', cardId);
+    if (card && card.match_state !== 'auto') {
+      try {
+        const stem = card.base || card.name;
+        const hits = await searchBooth(stem, { cookie: state.boothCookie });
+        candidates = hits.slice(0, 4).map((h) => ({
+          boothItemId: h.id, name: h.name, shopName: h.brand || '', score: 0, reasons: [],
+          price: h.price, imageUrl: h.imageUrl, source: 'search', pinned: false,
+        } as MatchCandidate));
+      } catch { /* 离线或搜索失败则无候选 */ }
+    }
+    return { manifest, saved, cardId, name: path.basename(filePath), candidates };
   });
 
   // ---- 解压 + unitypackage 导入 Unity（m02404）----
@@ -713,14 +768,6 @@ async function findCandidates(db: Db, card: any): Promise<MatchCandidate[]> {
   return out.sort((a, b) => b.score - a.score);
 }
 
-function applyKeywordCategory(db: Db, assetId: number, keywordNorm: string) {
-  const rule = db.get(`SELECT * FROM keyword_rules WHERE keyword_norm=? AND scope='category' AND enabled=1 ORDER BY weight DESC LIMIT 1`, keywordNorm);
-  if (!rule) return;
-  const catId = (rule as any).category_id;
-  const existing = db.get('SELECT category_manual_id FROM assets WHERE id=?', assetId);
-  if (existing && (existing as any).category_manual_id) return; // 人工分类优先
-  db.exec(`UPDATE assets SET category_id=?, category_reason=?, updated_at=datetime('now') WHERE id=?`, catId, 'keyword:' + keywordNorm, assetId);
-}
 
 function categoryTree(db: Db): CategoryNode[] {
   const cats = db.all('SELECT c.*, (SELECT COUNT(*) FROM assets a WHERE a.category_id=c.id) AS card_count FROM categories c ORDER BY sort, id');
