@@ -370,6 +370,22 @@ function Gallery() {
   const [bCat, setBCat] = useState<number | null>(null);
   const [msgB, setMsgB] = useState('');
   const [groupBy, setGroupBy] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      const typing = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable;
+      if ((e.key === '/' && !typing) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) {
+        e.preventDefault(); searchRef.current?.focus(); searchRef.current?.select();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  async function toggleFav(id: number, fav: boolean) {
+    await window.vrc.cardFavorite(id, fav);
+    setCards((prev) => prev.map((c) => (c.id === id ? { ...c, favorite: fav ? 1 : 0 } : c)));
+  }
   const syntax = useMemo(() => parseMiniSyntax(q), [q]);
 
   useEffect(() => {
@@ -487,7 +503,8 @@ function Gallery() {
         </section>
       )}
       <div className="ef-search">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索名称 / 编号　#编号 cat:分类 state:状态 kw:词 ext:扩展" aria-label="搜索" />
+        <input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') { setQ(''); (e.target as HTMLInputElement).blur(); } }} placeholder="搜索名称 / 编号　#编号 cat:分类 state:状态 kw:词 ext:扩展（按 / 聚焦）" aria-label="搜索" />
+        {q && <button className="search-clear" title="清空 (Esc)" aria-label="清空搜索" onClick={() => { setQ(''); searchRef.current?.focus(); }}>×</button>}
       </div>
       <div className="chips">
         <button className={'ef-chip' + (state === '' ? ' is-on' : '')} aria-pressed={state === ''} onClick={() => setState('')}>全部</button>
@@ -542,7 +559,7 @@ function Gallery() {
               <section key={g.key} className="gblock">
                 <div className="ghead"><span className="ef-field">#{g.boothId || '未匹配'}</span><span className="gt">{g.boothName || (g.boothId ? 'BOOTH 商品' : '未匹配商品')}</span><span className="ef-field">{g.items.length} 项</span></div>
                 <div className="wall">
-                  {g.items.map((c) => <GalleryCard key={c.id} c={c} selected={sel.has(c.id)} onToggle={toggleSel} batchMode={batchMode} />)}
+                  {g.items.map((c) => <GalleryCard key={c.id} c={c} selected={sel.has(c.id)} onToggle={toggleSel} batchMode={batchMode} onFav={toggleFav} />)}
                 </div>
               </section>
             ))}
@@ -550,7 +567,7 @@ function Gallery() {
           </div>
         ) : (
           <div className="wall">
-            {filtered.map((c) => <GalleryCard key={c.id} c={c} selected={sel.has(c.id)} onToggle={toggleSel} batchMode={batchMode} />)}
+            {filtered.map((c) => <GalleryCard key={c.id} c={c} selected={sel.has(c.id)} onToggle={toggleSel} batchMode={batchMode} onFav={toggleFav} />)}
             {filtered.length === 0 && <div className="ef-empty">没有符合条件的素材，试试放宽筛选。</div>}
           </div>
         )
@@ -559,7 +576,7 @@ function Gallery() {
   );
 }
 
-function GalleryCard({ c, selected, onToggle, batchMode }: { c: any; selected?: boolean; onToggle?: (id: number) => void; batchMode?: boolean }) {
+function GalleryCard({ c, selected, onToggle, batchMode, onFav }: { c: any; selected?: boolean; onToggle?: (id: number) => void; batchMode?: boolean; onFav?: (id: number, fav: boolean) => void }) {
   const cover = c.cover_path || '';
   const catName = c.category_reason ? String(c.category_reason).replace(/^(booth|keyword):/, '') : '';
   if (batchMode) {
@@ -578,6 +595,7 @@ function GalleryCard({ c, selected, onToggle, batchMode }: { c: any; selected?: 
   }
   return (
     <a className="card" href={'#/card/' + c.id} onClick={(e) => { e.preventDefault(); nav('card', String(c.id)); }}>
+      <button className={'card-fav' + (c.favorite ? ' is-on' : '')} title={c.favorite ? '取消收藏' : '收藏'} aria-label="收藏" onClick={(e) => { e.preventDefault(); e.stopPropagation(); onFav?.(c.id, !c.favorite); }}>{c.favorite ? '★' : '☆'}</button>
       <div className={'thumb' + (cover ? '' : ' is-empty')}>
         {cover ? <img src={cover} alt="" loading="lazy" /> : <span className="noimg">{c.booth_id || '无封面'}</span>}
       </div>

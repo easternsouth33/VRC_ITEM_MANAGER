@@ -686,3 +686,63 @@ ul.ef-rows.flat > li { padding-left: 0; padding-right: 0; }
   .console-side > *:nth-child(3) { --i: 2; }
   .console-dial { animation: ef-assemble 520ms var(--ef-mech) 120ms both; }
 }
+
+
+/* --- UI 操作优化：卡片悬浮反馈 + 收藏星标 + 搜索清除 --- */
+.wall > a.card {
+  transition: background 140ms var(--ef-ease), transform 140ms var(--ef-snap);
+}
+.wall > a.card:hover {
+  background: var(--ef-paper);
+  transform: translateY(-2px);
+}
+.card-fav {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  z-index: 2;
+  width: 1.7rem;
+  height: 1.7rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--ef-rule);
+  background: var(--ef-panel);
+  color: var(--ef-ink-2);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms var(--ef-ease), color 120ms var(--ef-ease);
+}
+.wall > a.card:hover .card-fav,
+.card-fav.is-on {
+  opacity: 1;
+}
+.card-fav:hover { color: var(--ef-ink); }
+.card-fav.is-on {
+  color: var(--ef-ink);
+  background: var(--ef-signal);
+  border-color: var(--ef-signal);
+}
+.ef-search { position: relative; }
+.ef-search input { padding-right: 2.2rem; }
+.search-clear {
+  position: absolute;
+  right: 0.4rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1.6rem;
+  height: 1.6rem;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: var(--ef-chip);
+  color: var(--ef-ink-2);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.search-clear:hover { background: var(--ef-rule); color: var(--ef-ink); }
+@media (prefers-reduced-motion: reduce) {
+  .wall > a.card, .wall > a.card:hover { transition: none; transform: none; }
+}
