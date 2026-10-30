@@ -1701,6 +1701,20 @@ function Views() {
 // ---------- 设置 ----------
 
 function Settings({ settings, reload }: { settings: any; reload: () => void }) {
+  const [organizing, setOrganizing] = useState(false);
+  const [orgResult, setOrgResult] = useState<any>(null);
+  async function organize(mode: 'copy' | 'move') {
+    setOrganizing(true);
+    setOrgResult(null);
+    try {
+      const r = await window.vrc.libraryOrganize({ mode });
+      setOrgResult(r);
+    } catch (e: any) {
+      setOrgResult({ ok: false, error: String(e?.message || e) });
+    } finally {
+      setOrganizing(false);
+    }
+  }
   const [theme, setTheme] = useState(settings?.theme || 'system');
   const [motion, setMotion] = useState(settings?.motion || 'full');
   const [concurrency, setConcurrency] = useState(settings?.maxConcurrency || 4);
@@ -1738,6 +1752,14 @@ function Settings({ settings, reload }: { settings: any; reload: () => void }) {
           ))}
         </div>
       </div>
+      <div className="ef-setting">
+        <label>整理导出</label>
+        <div className="ef-seg">
+          <button className="ef-btn small" disabled={organizing} onClick={() => organize('copy')}>{organizing ? '整理中…' : '按数据库结构整理导出（复制）'}</button>
+          <button className="ef-btn small" disabled={organizing} onClick={() => organize('move')}>整理并移动</button>
+        </div>
+      </div>
+      {orgResult ? <div className="ef-notice" data-flag={orgResult.ok ? 'i' : 'w'}>{orgResult.ok ? ('已整理 ' + orgResult.copied + '/' + orgResult.totalCards + ' 张卡到 ' + orgResult.target + (orgResult.failed ? '，失败 ' + orgResult.failed : '') + '；含 library.db 与 manifest.json，可整体移植。') : ('整理失败：' + (orgResult.error || '未知'))}</div> : null}
       <div className="ef-notice" data-flag="i">设置即时保存到本地资料库。</div>
     </div>
   );

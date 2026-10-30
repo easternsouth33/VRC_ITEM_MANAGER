@@ -94,6 +94,7 @@ const api = {
   fileDelete: (assetId: number, targetPath: string) => ipcRenderer.invoke('file:delete', assetId, targetPath),
   cardDelete: (assetId: number) => ipcRenderer.invoke('card:delete', assetId),
   // 数据备份 / 迁移
+  libraryOrganize: (opts?: { mode?: 'copy' | 'move' }) => ipcRenderer.invoke('library:organize', opts),
   dbBackup: () => ipcRenderer.invoke('db:backup'),
   dbRestore: () => ipcRenderer.invoke('db:restore'),
   dbInfo: () => ipcRenderer.invoke('db:info'),

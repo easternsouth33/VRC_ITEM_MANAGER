@@ -574,6 +574,129 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null, state
     };
   });
 
+  // ---- 整理导出素材库（m06142）：按数据库结构存储 + 可移植 + 自动按顺序放文件夹 ----
+  ipcMain.handle('library:organize', async (_e, opts: { mode?: 'copy' | 'move' } = {}) => {
+    const win = getWindow();
+    const res = await dialog.showOpenDialog(win!, {
+      title: '选择整理导出的目标文件夹',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (res.canceled || !res.filePaths.length) return { ok: false, error: '已取消' };
+    const target = res.filePaths[0];
+    const mode = opts?.mode === 'move' ? 'move' : 'copy';
+
+    const sanitize = (s: string) => (s || '未命名').replace(/[\\/:*?"<>|]/g, '_').trim() || '未命名';
+    const pad = (n: number) => String(n).padStart(3, '0');
+
+    // 取所有卡（含分类名、商品名）
+    const cards = db.all(`
+      SELECT a.*, c.name AS category_name, b.name AS booth_name
+      FROM assets a
+      LEFT JOIN categories c ON c.id = a.category_id
+      LEFT JOIN booth_items b ON b.id = a.booth_id
+      WHERE a.fold_parent IS NULL
+      ORDER BY a.root_key, c.sort, c.id, a.booth_id, a.name`) as any[];
+
+    const manifest: any[] = [];
+    let copied = 0, failed = 0;
+    const errors: string[] = [];
+
+    // 按 root_key → 分类 分组，组内编号排序
+    const counters = new Map<string, number>();
+    for (const card of cards) {
+      const rootLabel = card.root_key === 'map' ? '地图素材' : '模型素材';
+      const catLabel = sanitize(card.category_name || '未分类');
+      const groupKey = rootLabel + '/' + catLabel;
+      const seq = (counters.get(groupKey) || 0) + 1;
+      counters.set(groupKey, seq);
+
+      const idPart = card.booth_id ? card.booth_id + '_' : '';
+      const folderName = pad(seq) + '_' + idPart + sanitize(card.name);
+      const destDir = path.join(target, rootLabel, catLabel, folderName);
+
+      try {
+        fs.mkdirSync(destDir, { recursive: true });
+        // 收集该卡磁盘路径：目录卡取最浅公共根目录；文件卡取成员文件
+        const members = db.all('SELECT * FROM asset_members WHERE asset_id=? ORDER BY depth, rel_path', card.id) as any[];
+        const dirMembers = members.filter((m) => m.member_type === 'dir' && m.path && fs.existsSync(m.path));
+        const fileMembers = members.filter((m) => m.member_type !== 'dir' && m.path && fs.existsSync(m.path));
+        const copiedPaths: string[] = [];
+
+        const copyOne = (src: string, destBase: string) => {
+          const base = path.basename(src);
+          const dst = path.join(destBase, base);
+          const stat = fs.statSync(src);
+          if (stat.isDirectory()) {
+            fs.cpSync(src, dst, { recursive: true });
+          } else {
+            fs.copyFileSync(src, dst);
+          }
+          copiedPaths.push(path.relative(target, dst));
+          if (mode === 'move') {
+            try { fs.rmSync(src, { recursive: stat.isDirectory(), force: true }); } catch { /* 忽略 */ }
+          }
+        };
+
+        if (dirMembers.length) {
+          // 目录卡：取最浅公共根目录（depth 最小），避免重复复制嵌套
+          const minDepth = Math.min(...dirMembers.map((m) => m.depth));
+          const tops = dirMembers.filter((m) => m.depth === minDepth);
+          const seen = new Set<string>();
+          for (const t of tops) {
+            if (seen.has(t.path)) continue;
+            seen.add(t.path);
+            copyOne(t.path, destDir);
+          }
+        } else if (fileMembers.length) {
+          const seen = new Set<string>();
+          for (const f of fileMembers) {
+            if (seen.has(f.path)) continue;
+            seen.add(f.path);
+            copyOne(f.path, destDir);
+          }
+        }
+
+        manifest.push({
+          assetId: card.id,
+          name: card.name,
+          boothId: card.booth_id,
+          category: card.category_name || null,
+          rootKey: card.root_key,
+          dest: path.relative(target, destDir),
+          files: copiedPaths,
+        });
+        copied++;
+      } catch (e: any) {
+        failed++;
+        errors.push(card.name + ': ' + String(e?.message || e));
+      }
+    }
+
+    // 可移植：备份数据库 + 写 manifest.json（相对路径映射）
+    try {
+      const dbDest = path.join(target, 'library.db');
+      db.backupTo(dbDest);
+      fs.writeFileSync(path.join(target, 'manifest.json'), JSON.stringify({
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        mode,
+        totalCards: cards.length,
+        copied,
+        failed,
+        cards: manifest,
+      }, null, 2), 'utf8');
+      fs.writeFileSync(path.join(target, 'README.txt'),
+        'VRC素材整理 · 整理导出\\r\\n' +
+        '本目录按数据库结构组织：模型素材/地图素材 → 分类 → 序号_BOOTH编号_素材名。\\r\\n' +
+        'library.db 为完整资料库（可用应用「导入/迁移数据库」恢复）。\\r\\n' +
+        'manifest.json 记录每张卡到此目录的相对路径映射，便于整体移植。\\r\\n', 'utf8');
+    } catch (e: any) {
+      errors.push('写入数据库/manifest: ' + String(e?.message || e));
+    }
+
+    return { ok: true, target, totalCards: cards.length, copied, failed, errors: errors.slice(0, 20) };
+  });
+
   ipcMain.handle('shell:showItem', async (_e, p: string) => {
     shell.showItemInFolder(p);
     return { ok: true };

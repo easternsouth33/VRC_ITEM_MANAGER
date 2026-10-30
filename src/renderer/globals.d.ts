@@ -75,6 +75,7 @@ declare global {
       showItem(p: string): Promise<any>;
       fileDelete(assetId: number, targetPath: string): Promise<any>;
       cardDelete(assetId: number): Promise<any>;
+      libraryOrganize(opts?: { mode?: 'copy' | 'move' }): Promise<any>;
       dbBackup(): Promise<{ok:boolean;path?:string;error?:string}>;
       dbRestore(): Promise<{ok:boolean;error?:string}>;
       dbInfo(): Promise<{dataDir:string;dbPath:string;cards:number;boothItems:number}>;
