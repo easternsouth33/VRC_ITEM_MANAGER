@@ -20,3 +20,5 @@ NVIDIA Corporation/
 
 # 本地数据（便携模式 exe 同目录数据）
 VRCAssetLibraryData/
+release-v1/
+.acl-recovery/
