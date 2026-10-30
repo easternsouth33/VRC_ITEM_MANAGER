@@ -746,3 +746,17 @@ ul.ef-rows.flat > li { padding-left: 0; padding-right: 0; }
 @media (prefers-reduced-motion: reduce) {
   .wall > a.card, .wall > a.card:hover { transition: none; transform: none; }
 }
+
+
+/* --- 启动淡出：数据就绪后快速淡出，缩短感知启动时间 --- */
+.boot.is-out {
+  animation: boot-out 240ms var(--ef-mech) forwards;
+  pointer-events: none;
+}
+@keyframes boot-out {
+  from { opacity: 1; }
+  to { opacity: 0; visibility: hidden; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .boot.is-out { animation: none; opacity: 0; visibility: hidden; }
+}

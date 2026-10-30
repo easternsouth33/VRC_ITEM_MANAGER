@@ -88,11 +88,12 @@ function App() {
   const route = useHashRoute();
   const [settings, setSettings] = useState<any>(null);
   const [booting, setBooting] = useState(true);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     // 摘除 index.html 里的静态启动画面（React 已挂载，splash 为纯 CSS 动画）
     try { document.getElementById('boot-splash')?.remove(); } catch {}
-    window.vrc?.settingsGet?.().then((s: any) => { setSettings(s); applySettingsToDom(s); }).catch(() => {});
+    window.vrc?.settingsGet?.().then((s: any) => { setSettings(s); applySettingsToDom(s); }).catch(() => {}).finally(() => setReady(true));
   }, []);
   const [upd, setUpd] = useState<any>(null);
 
@@ -125,7 +126,7 @@ function App() {
 
   return (
     <>
-      {booting && <BootSequence done={() => setBooting(false)} />}
+      {booting && <BootSequence ready={ready} done={() => setBooting(false)} />}
       <div className="shell">
         <div className="ef-tri"><i /><i /><i /></div>
         <header className="ef-cmdbar" role="banner">
@@ -171,23 +172,35 @@ const BOOT_LINES = [
   '完成',
 ];
 
-function BootSequence({ done }: { done: () => void }) {
+function BootSequence({ ready, done }: { ready: boolean; done: () => void }) {
   const [idx, setIdx] = useState(0);
+  const [fading, setFading] = useState(false);
+  const finished = useRef(false);
+  // 数据未就绪时按节奏推进日志；就绪后立即快进到最后并淡出
   useEffect(() => {
-    if (idx >= BOOT_LINES.length) { done(); return; }
+    if (idx >= BOOT_LINES.length) return;
     const t = setTimeout(() => setIdx(idx + 1), idx >= BOOT_LINES.length - 1 ? 40 : 22);
     return () => clearTimeout(t);
   }, [idx]);
+  useEffect(() => {
+    if (ready && !finished.current) {
+      finished.current = true;
+      setIdx(BOOT_LINES.length);
+      setFading(true);
+      const t = setTimeout(done, 240); // 淡出后移除
+      return () => clearTimeout(t);
+    }
+  }, [ready, done]);
   return (
-    <div className="boot" role="status" aria-label="启动中">
+    <div className={'boot' + (fading ? ' is-out' : '')} role="status" aria-label="启动中">
       <div className="boot-inner">
         <div className="boot-head">
-          <span className="boot-no">{String(idx).padStart(2, '0')}</span>
-          <span className="boot-text">{BOOT_LINES[idx] || '完成'}</span>
+          <span className="boot-no">{String(Math.min(idx, BOOT_LINES.length)).padStart(2, '0')}</span>
+          <span className="boot-text">{ready ? '完成' : (BOOT_LINES[idx] || '完成')}</span>
         </div>
         <div className="boot-log">
-          {BOOT_LINES.slice(0, idx + 1).map((l, i) => (
-            <div key={i} className={i === idx ? 'is-now' : ''}><span className="n">{String(i).padStart(2, '0')}</span><span>{l}</span></div>
+          {BOOT_LINES.slice(0, ready ? BOOT_LINES.length : idx + 1).map((l, i) => (
+            <div key={i} className={i === idx && !ready ? 'is-now' : ''}><span className="n">{String(i).padStart(2, '0')}</span><span>{l}</span></div>
           ))}
         </div>
       </div>
