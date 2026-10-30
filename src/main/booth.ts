@@ -1,9 +1,9 @@
 // BOOTH 抓取与搜索（计划书 §5.3）
 // Electron 45 内建 Node 24 有全局 fetch
 import * as cheerio from 'cheerio';
-import type { BoothInfo } from '../shared/types';
+import type { BoothInfo, BoothVariation } from '../shared/types';
 
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0 Safari/537.36 VRCAL/1.0';
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0 Safari/537.36 VRCAssetLibrary/1.0';
 
 export interface BoothFetchOpts {
   cookie?: string;
@@ -23,6 +23,16 @@ export async function fetchBoothItem(id: string, opts: BoothFetchOpts = {}): Pro
   const j = await getJSON(url, opts) as any;
   const tags: string[] = Array.isArray(j.tags) ? j.tags.map((t: any) => t.name) : [];
   const aliases: string[] = [];
+  const rawDescription = typeof j.description === 'string' ? j.description : '';
+  for (const line of rawDescription.split(/\r?\n/)) {
+    const match = line.match(/^\s*(?:英語名|英文名|English(?:\s+name)?|商品名|名称|アセット名|Name)\s*[:：]\s*(.{2,160})/i);
+    if (match?.[1]) aliases.push(match[1].trim());
+  }
+  const variations: BoothVariation[] = Array.isArray(j.variations) ? j.variations.map((v: any) => ({
+    id: String(v.id || ''), name: String(v.name || ''), price: v.price == null ? null : String(v.price),
+    type: v.type || null, url: v.url || null, downloadable: !!(v.downloadable || v.downloads?.length || v.is_downloadable),
+  })).filter((v: BoothVariation) => v.name) : [];
+  const images: string[] = Array.isArray(j.images) ? j.images.map((im: any) => im.original || im.resized).filter(Boolean) : [];
   const name = j.name || '';
   // 英日别名：商品名里常见用 / 或 ｜ 分隔的别名
   for (const a of name.split(/[/｜|]/)) {
@@ -58,7 +68,9 @@ export async function fetchBoothItem(id: string, opts: BoothFetchOpts = {}): Pro
     isAdult: !!j.is_adult,
     tags,
     imageUrl: img || null,
-    aliases,
+    images,
+    variations,
+    aliases: [...new Set(aliases.map((a: string) => a.trim()).filter((a: string) => a && a !== name))],
   };
 }
 

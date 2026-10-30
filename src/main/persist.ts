@@ -3,6 +3,7 @@ import type { Db } from './db';
 import type { ScanResult } from './scanner';
 import { collectBoothIds } from '../shared/booth-id';
 import { normalizeName } from '../shared/normalize';
+import { refreshCategorySuggestion } from './classification';
 
 // 根目录 → rootKey（模型 / 地图，计划书 §3.1 双根区分）
 export function rootKeyFor(label: string): string {
@@ -13,7 +14,12 @@ export function rootKeyFor(label: string): string {
 }
 
 // 扫描结果持久化（roots → assets → asset_members → asset_files，含折叠语义）
-export function persistScan(db: Db, rootId: number, rootKey: string, cards: ScanResult[]): number {
+export function persistScan(db: Db, rootId: number, rootKey: string, cards: ScanResult[], assetIdsOut: number[] = []): number {
+  // 重扫前保存可恢复快照：撤回扫描不删除磁盘素材。
+  const snapshotAssets = db.all('SELECT * FROM assets WHERE root_id=?', rootId);
+  const snapshotMembers = db.all('SELECT m.* FROM asset_members m JOIN assets a ON a.id=m.asset_id WHERE a.root_id=?', rootId);
+  const snapshotFiles = db.all('SELECT f.* FROM asset_files f JOIN assets a ON a.id=f.asset_id WHERE a.root_id=?', rootId);
+  const rootBefore = db.get('SELECT * FROM roots WHERE id=?', rootId);
   // 清空该 root 旧卡与成员/文件（重扫幂等）
   const oldIds = db.all<{ id: number }>('SELECT id FROM assets WHERE root_id = ?', rootId);
   for (const o of oldIds) {
@@ -30,7 +36,10 @@ export function persistScan(db: Db, rootId: number, rootKey: string, cards: Scan
     count++;
   }
   db.exec("UPDATE roots SET card_count=?, last_scan_at=datetime('now') WHERE id=?", count, rootId);
+  const ids = db.all<{ id: number }>('SELECT id FROM assets WHERE root_id=?', rootId).map((r) => r.id);
+  assetIdsOut.push(...ids);
   db.exec('INSERT INTO imports(root_id,source,kind,stat) VALUES(?,?,?,?)', rootId, String(rootId), 'scan', JSON.stringify({ cards: count }));
+  db.exec('INSERT INTO import_snapshots(root_id,source,kind,asset_ids_json,backup_json) VALUES(?,?,?,?,?)', rootId, String(rootId), 'scan', JSON.stringify(ids), JSON.stringify({ assets: snapshotAssets, members: snapshotMembers, files: snapshotFiles, root: rootBefore }));
   return count;
 }
 
@@ -68,6 +77,7 @@ function persistCard(db: Db, rootId: number, rootKey: string, card: ScanResult, 
   for (const [ext, n] of exts) {
     db.exec('INSERT INTO asset_files(asset_id,path,rel_path,ext,size) VALUES(?,?,?,?,?)', assetId, '', '', ext, n);
   }
+  refreshCategorySuggestion(db, assetId, collectMembers(card, '').map((m) => m.relPath));
   return assetId;
 }
 

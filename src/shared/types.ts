@@ -32,6 +32,15 @@ export interface MemberInfo {
   unavailable: boolean;
 }
 
+export interface BoothVariation {
+  id: string;
+  name: string;
+  price: string | null;
+  type: string | null;
+  url: string | null;
+  downloadable: boolean;
+}
+
 export interface BoothInfo {
   id: string;
   name: string;
@@ -48,6 +57,9 @@ export interface BoothInfo {
   isAdult: boolean;
   tags: string[];
   imageUrl: string | null;
+  images: string[];
+  variations: BoothVariation[];
+  translations?: { name: string; description: string | null } | null;
   aliases: string[];
 }
 

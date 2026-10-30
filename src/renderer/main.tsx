@@ -1,5 +1,7 @@
 // VRC素材整理 renderer（React 19 + 终末地风格）
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ArchiveTerminal } from "./archive/Terminal";
+import { ArchiveBoot } from "./archive/boot";
 import { createRoot } from 'react-dom/client';
 
 declare const window: any;
@@ -57,30 +59,38 @@ function applySettingsToDom(s: any) {
 }
 
 
-// ---------- 控制台圆盘（终末地主视觉） ----------
-function Dial({ s }: { s: any }) {
-  const ref = useRef<SVGSVGElement | null>(null);
-  useEffect(() => {
-    const draw = (window as any).drawDial;
-    if (!draw || !ref.current || !s) return;
-    const navgo = (page: string) => (e: any) => { e.preventDefault(); nav(page); };
-    draw(ref.current, {
-      sections: [
-        { zh: '图库', en: 'Gallery', href: '#/gallery', big: fmtInt(s.total), unit: '卡', here: true, onClick: navgo('gallery') },
-        { zh: '匹配', en: 'Match', href: '#/match', big: fmtInt(s.pending), unit: '待办', alert: s.pending > 0, onClick: navgo('match') },
-        { zh: '分类', en: 'Classify', href: '#/classify', big: fmtInt(s.filed), unit: '已分类', onClick: navgo('classify') },
-        { zh: '集合', en: 'Collections', href: '#/collections', big: fmtInt(s.collections), unit: '个', onClick: navgo('collections') },
-        { zh: 'BOOTH', en: 'Browser', href: '#/booth', big: fmtInt(s.boothItems), unit: '商品', onClick: navgo('booth') },
-        { zh: '任务', en: 'Tasks', href: '#/tasks', big: fmtInt(s.netActive), unit: '进行', alert: s.netActive > 0, onClick: navgo('tasks') },
-      ],
-      gauges: [
-        { label: '匹配率', share: s.total > 0 ? s.matched / s.total : 0 },
-        { label: '分类率', share: s.total > 0 ? s.filed / s.total : 0 },
-      ],
-      idle: { label: '已扫描', big: fmtBytes(s.size), unit: '', sub: '扫描于 ' + s.scannedAt },
-    });
-  }, [s]);
-  return <svg className="ef-dial" ref={ref} role="navigation" aria-label="控制台分区导航" />;
+// ---------- 主界面：直线式工作看板 ----------
+function ConsolePanel({ s }: { s: any }) {
+  const entries = [
+    { page: 'match', label: '待匹配素材', en: 'MATCH QUEUE', value: s.pending, unit: '卡', alert: s.pending > 0 },
+    { page: 'classify', label: '已分类素材', en: 'CLASSIFIED', value: s.filed, unit: '卡' },
+    { page: 'booth', label: '已关联商品', en: 'BOOTH LINKS', value: s.boothItems, unit: '件' },
+  ];
+  const rate = s.total ? Math.round(s.matched / s.total * 100) : 0;
+  const filedRate = s.total ? Math.round(s.filed / s.total * 100) : 0;
+  return (
+    <section className="command-board" aria-label="素材库工作看板">
+      <div className="command-summary">
+        <span className="ef-eyebrow slash">LIBRARY / 本地资料库</span>
+        <div className="command-total"><b>{fmtInt(s.total)}</b><span>素材卡</span></div>
+        <p>{fmtBytes(s.size)} │ 扫描于 {s.scannedAt}</p>
+        <div className="command-rates">
+          <div><span>匹配率 <b>{rate}%</b></span><div className="linear-meter"><i style={{ width: rate + '%' }} /></div></div>
+          <div><span>分类率 <b>{filedRate}%</b></span><div className="linear-meter"><i style={{ width: filedRate + '%' }} /></div></div>
+        </div>
+        <button className="ef-btn go" onClick={() => nav('terminal')}>进入档案终端 ↗</button>
+      </div>
+      <div className="command-entries">
+        {entries.map((e, i) => (
+          <button key={e.page} className={'command-entry' + (e.alert ? ' is-alert' : '')} onClick={() => nav(e.page)}>
+            <span className="command-index">{String(i + 1).padStart(2, '0')}</span>
+            <span><small>{e.en}</small><strong>{e.label}</strong></span>
+            <span className="command-value">{fmtInt(e.value)}<small>{e.unit}</small></span><span className="command-arrow">↗</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 // ---------- 应用 ----------
@@ -89,6 +99,7 @@ function App() {
   const [settings, setSettings] = useState<any>(null);
   const [booting, setBooting] = useState(true);
   const [ready, setReady] = useState(false);
+  const [introMode] = useState<'archive' | 'short'>('archive');
 
   useEffect(() => {
     // 摘除 index.html 里的静态启动画面（React 已挂载，splash 为纯 CSS 动画）
@@ -111,6 +122,7 @@ function App() {
   let content: React.ReactNode;
   switch (page) {
     case 'welcome': content = <Welcome onGo={() => nav('gallery')} />; break;
+    case 'terminal': content = <ArchiveTerminal />; break;
     case 'card': content = <CardDetail id={route.id!} />; break;
     case 'match': content = <Match />; break;
     case 'classify': content = <Classify />; break;
@@ -126,13 +138,16 @@ function App() {
 
   return (
     <>
-      {booting && <BootSequence ready={ready} done={() => setBooting(false)} />}
+      {booting && (introMode === 'archive'
+        ? <ArchiveBoot dark={document.documentElement.getAttribute('data-theme') === 'dark'} done={() => setBooting(false)} />
+        : <BootSequence ready={ready} done={() => setBooting(false)} />)}
       <div className="shell">
         <div className="ef-tri"><i /><i /><i /></div>
         <header className="ef-cmdbar" role="banner">
         <div className="brand"><span className="seal">VRC</span><span className="name">素材整理</span></div>
         <nav aria-label="主导航">
           <NavLink page="gallery" label="图库" en="GALLERY" current={page === 'gallery' || page === 'card'} />
+          <NavLink page="terminal" label="终端" en="ARCHIVE" current={page === 'terminal'} />
           <NavLink page="match" label="匹配" en="MATCH" current={page === 'match'} />
           <NavLink page="classify" label="分类" en="CLASSIFY" current={page === 'classify'} />
           <NavLink page="keywords" label="关键词" en="KEYWORDS" current={page === 'keywords'} />
@@ -216,10 +231,21 @@ function Welcome({ onGo }: { onGo: () => void }) {
   // m04241：拖入/扫描后按文件名自动搜 BOOTH，弹出约 3 条候选供选择
   const [picks, setPicks] = useState<any[]>([]);
   const [picking, setPicking] = useState(false);
+  const [importHistory, setImportHistory] = useState<any[]>([]);
+  const [batchInfo, setBatchInfo] = useState<{ id: number; ids: number[] } | null>(null);
 
   useEffect(() => {
     window.vrc?.rootsList?.().then(setRoots).catch(() => {});
+    window.vrc?.importList?.().then(setImportHistory).catch(() => {});
   }, []);
+
+  async function undoImport(item: any) {
+    if (!window.confirm('撤回「' + item.source + '」的导入？\n磁盘中的原素材会保留，资料库记录将恢复到导入前。')) return;
+    const result = await window.vrc.importUndo(item.id);
+    setProgress(result.ok ? '已撤回 ' + result.removed + ' 张导入卡片' + (result.restored ? '，恢复 ' + result.restored + ' 张旧卡片' : '') : result.error);
+    setImportHistory(await window.vrc.importList());
+    setRoots(await window.vrc.rootsList());
+  }
 
   async function handleDrop(files: File[]) {
     if (!files.length) return;
@@ -232,23 +258,28 @@ function Welcome({ onGo }: { onGo: () => void }) {
       if (/.(zip|rar|7z|unitypackage|vrm|fbx|blend|psd)$/.test(ext)) archives.push(p);
       else dirs.push(p);
     }
+    const batchId = await window.vrc.importBatchStart('batch:' + Date.now(), archives);
+    const batchIds: number[] = [];
     if (dirs.length) {
       setProgress('扫描文件夹…');
       await window.vrc.rootsAdd(dirs);
-      await window.vrc.scanFolders(dirs);
+      const scanResult = await window.vrc.scanFolders(dirs);
+      for (const r of scanResult?.results || []) if (r.assetIds) batchIds.push(...r.assetIds);
     }
     let added = 0;
     const newPicks: any[] = [];
     if (archives.length) {
       setProgress('读取压缩包名称并建卡 ' + archives.length + ' 个…');
       for (const a of archives) {
-        const r = await window.vrc.archiveInspect(a);
+        const r = await window.vrc.archiveInspect(a, batchId);
         if (r?.cardId) {
-          added++;
+          added++; batchIds.push(r.cardId);
           if (r?.candidates?.length) newPicks.push({ name: r.name || a, cardId: r.cardId, candidates: r.candidates });
         }
       }
     }
+    await window.vrc.importBatchFinish(batchId, batchIds);
+    setBatchInfo({ id: batchId, ids: batchIds });
     setProgress((dirs.length ? '已扫描 ' + dirs.length + ' 个文件夹' : '') + (archives.length ? '，登记 ' + archives.length + ' 个压缩包并建卡 ' + added + ' 张' : ''));
     if (newPicks.length) { setPicks(newPicks); setPicking(true); }
     else onGo();
@@ -258,8 +289,12 @@ function Welcome({ onGo }: { onGo: () => void }) {
     const dirs = await window.vrc.pickFolders();
     if (!dirs.length) return;
     setProgress('扫描中…');
+    const batchId = await window.vrc.importBatchStart('folders:' + Date.now(), dirs);
     await window.vrc.rootsAdd(dirs);
     const res = await window.vrc.scanFolders(dirs);
+    const batchIds = (res?.results || []).flatMap((r: any) => r.assetIds || []);
+    await window.vrc.importBatchFinish(batchId, batchIds);
+    setBatchInfo({ id: batchId, ids: batchIds });
     setProgress('完成 ' + (res?.results?.length ?? 0) + ' 个根目录');
     onGo();
   }
@@ -268,15 +303,19 @@ function Welcome({ onGo }: { onGo: () => void }) {
     const files = await window.vrc.pickFiles();
     if (!files.length) return;
     setProgress('读取压缩包名称并建卡…');
+    const batchId = await window.vrc.importBatchStart('files:' + Date.now(), files);
+    const batchIds: number[] = [];
     let added = 0;
     const newPicks: any[] = [];
     for (const f of files) {
-      const r = await window.vrc.archiveInspect(f);
+      const r = await window.vrc.archiveInspect(f, batchId);
       if (r?.cardId) {
-        added++;
+        added++; batchIds.push(r.cardId);
         if (r?.candidates?.length) newPicks.push({ name: r.name || f, cardId: r.cardId, candidates: r.candidates });
       }
     }
+    await window.vrc.importBatchFinish(batchId, batchIds);
+    setBatchInfo({ id: batchId, ids: batchIds });
     setProgress('已登记 ' + files.length + ' 个压缩包并建卡 ' + added + ' 张');
     if (newPicks.length) { setPicks(newPicks); setPicking(true); }
   }
@@ -318,7 +357,15 @@ function Welcome({ onGo }: { onGo: () => void }) {
           </li>
         ))}
       </div>
+      {importHistory.length > 0 && <section className="import-history">
+        <div className="ef-group-head"><h2>导入记录</h2><span className="ef-field">{importHistory.filter((i) => !i.undone_at).length} 次可撤回</span></div>
+        {importHistory.slice(0, 8).map((item) => <div className="import-record" key={item.id}>
+          <span className="import-kind">{item.kind === 'scan' ? '文件夹' : '压缩包'}</span><span className="import-source">{item.source}</span><span className="ef-field">{item.count} 卡</span>
+          <button className="ef-btn small" disabled={!!item.undone_at} onClick={() => undoImport(item)}>{item.undone_at ? '已撤回' : '撤回导入'}</button>
+        </div>)}
+      </section>}
       {progress && <div className="ef-notice" data-flag="!">{progress}</div>}
+      {batchInfo && <div className="import-batch-result"><span><b>同批导入已归组</b><small>{batchInfo.ids.length} 张素材 · 等待匹配 · 已建立批次关联</small></span><button className="ef-btn small go" onClick={() => nav('match')}>前往匹配 ↗</button><button className="ef-btn small" onClick={() => nav('collections')}>查看集合</button></div>}
 
       {picking && picks.length > 0 && (
         <div className="stack" style={{ marginTop: '1.5rem' }}>
@@ -501,19 +548,7 @@ function Gallery() {
         </div>
       </div>
       {!loading && cards.length > 0 && (
-        <section className="console-hero" aria-label="总览">
-          <div className="console-side">
-            <StatPanel title="素材总量" lead="right" value={fmtInt(totals.cards)} unit="卡" />
-            <StatPanel title="占用空间" lead="right" value={fmtBytes(totals.size)} unit="" />
-            <StatPanel title="待匹配" lead="right" value={fmtInt(totals.pending)} unit="卡" alert={totals.pending > 0} />
-          </div>
-          <div className="console-dial"><Dial s={consoleStats} /></div>
-          <div className="console-side">
-            <StatPanel title="已分类" lead="left" value={fmtInt(totals.filed)} unit="卡" />
-            <StatPanel title="匹配率" lead="left" value={totals.cards ? Math.round((totals.matched / totals.cards) * 100) + '' : '0'} unit="%" />
-            <StatPanel title="分类率" lead="left" value={totals.cards ? Math.round((totals.filed / totals.cards) * 100) + '' : '0'} unit="%" />
-          </div>
-        </section>
+        <ConsolePanel s={consoleStats} />
       )}
       <div className="ef-search">
         <input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') { setQ(''); (e.target as HTMLInputElement).blur(); } }} placeholder="搜索名称 / 编号　#编号 cat:分类 state:状态 kw:词 ext:扩展（按 / 聚焦）" aria-label="搜索" />
@@ -1296,6 +1331,7 @@ function Match() {
 function Classify() {
   const [tree, setTree] = useState<any[]>([]);
   const [cards, setCards] = useState<any[]>([]);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
   const [sel, setSel] = useState<any>(null);
   const [picks, setPicks] = useState<Record<number, number>>({});
   const [newCat, setNewCat] = useState('');
@@ -1308,6 +1344,7 @@ function Classify() {
   useEffect(() => {
     reloadTree();
     reload();
+    window.vrc.categorySuggestions().then(setSuggestions).catch(() => {});
   }, []);
 
   const flat = useMemo(() => { const out: any[] = []; const walk = (n: any[]) => n.forEach((c) => { out.push(c); walk(c.children || []); }); walk(tree); return out; }, [tree]);
@@ -1317,6 +1354,7 @@ function Classify() {
     await window.vrc.categoryAssign(c.id, cat, 'manual');
     setPicks((p) => { const n = { ...p }; delete n[c.id]; return n; });
     await reload();
+    setSuggestions(await window.vrc.categorySuggestions());
   }
 
   async function createCat() {
@@ -1400,6 +1438,7 @@ function Classify() {
       </div>
       <div className="stack">
         <div className="ef-sheet-head"><h2>待分类</h2><div className="ef-facts"><span className="ef-field">{fmtInt(unfiled.length)} 待处理</span></div></div>
+        {suggestions.length > 0 && <section className="clothing-suggestions"><div className="ef-eyebrow slash">CLOTHING / 服饰识别建议</div><p>依据文件名、包内路径、BOOTH 分类和已有服装命名；确认后才会归类。</p>{suggestions.map((s) => <div className="clothing-suggestion" key={s.asset_id}><div><b>{s.name}</b><small>{Math.round(s.confidence * 100)}% · {JSON.parse(s.reasons_json || '[]').join('、')}</small></div><button className="ef-btn small go" onClick={() => assign({id:s.asset_id},s.category_id)}>归入服装</button></div>)}</section>}
         <div className="mrow">
           {unfiled.slice(0, 40).map((c) => (
             <div key={c.id} className="mcard">
@@ -1454,6 +1493,13 @@ function Booth() {
   const [lib, setLib] = useState<any>({ loggedIn: false, items: [] });
   const [libLoaded, setLibLoaded] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<any>(null);
+  const [translation, setTranslation] = useState<any>(null);
+  const [translating, setTranslating] = useState(false);
+  const [notice, setNotice] = useState('');
 
   // BOOTH 官方对商品/资料库页返回 X-Frame-Options: SAMEORIGIN，iframe 会被拦截，
   // 因此统一改为在独立子窗口（persist:booth 共享登录态）中打开。
@@ -1485,6 +1531,30 @@ function Booth() {
     setLibLoaded(true);
   }
 
+  async function searchItems() {
+    if (!query.trim()) return;
+    setSearching(true); setNotice(''); setSelectedItem(null); setTranslation(null);
+    try {
+      const direct = /^\d{6,8}$/.test(query.trim()) ? [{ id: query.trim() }] : await window.vrc.boothSearch(query.trim());
+      setResults(direct);
+      if (!direct.length) setNotice('未找到匹配商品，可尝试英文、日文原名或 BOOTH 编号。');
+    } catch (e: any) { setNotice('检索失败：' + e.message); }
+    setSearching(false);
+  }
+  async function inspectItem(id: string) {
+    setNotice(''); setTranslation(null);
+    try {
+      const info = await window.vrc.boothFetch(id); setSelectedItem(info);
+    } catch (e: any) { setNotice('读取商品失败：' + e.message); }
+  }
+  async function translateItem() {
+    if (!selectedItem) return;
+    setTranslating(true); setNotice('');
+    try { setTranslation(await window.vrc.boothTranslate(selectedItem.id)); }
+    catch (e: any) { setNotice('翻译暂时未完成：' + e.message); }
+    setTranslating(false);
+  }
+
   async function wishlist(id: string) {
     const url = await window.vrc.boothWishlistUrl(id);
     openUrl(url);
@@ -1508,6 +1578,13 @@ function Booth() {
             </span>
           </li>
           <li>
+            <span className="meta">商品检索</span>
+            <span className="acts">
+              <input className="url" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') searchItems(); }} placeholder="输入商品名称、英日关键词或编号" />
+              <button className="ef-btn small go" disabled={searching} onClick={searchItems}>{searching ? '检索中…' : '检索商品'}</button>
+            </span>
+          </li>
+          <li>
             <span className="meta">登录 / 资料库</span>
             <span className="acts">
               <button className="ef-btn small" onClick={() => openUrl('https://accounts.booth.pm/')}>官方登录</button>
@@ -1516,7 +1593,20 @@ function Booth() {
             </span>
           </li>
         </div>
+        {notice && <div className="ef-notice" data-flag="i">{notice}</div>}
         <div className="cands">
+          {results.length > 0 && <div className="booth-results">{results.map((it) => <div key={it.id} className="cand">
+            <div className="thumb">{it.imageUrl ? <img src={it.imageUrl} alt="" /> : <span className="noimg">{it.id}</span>}</div>
+            <div className="tt">{it.name || 'BOOTH 商品 ' + it.id}<span className="st">{it.brand || ''} {it.price ? '│ ' + it.price + ' JPY' : ''}</span></div>
+            <div className="sc">#{it.id}</div><div className="acts"><button className="ef-btn small go" onClick={() => inspectItem(it.id)}>查看 / 翻译</button><button className="ef-btn small" onClick={() => openItem(it.id)}>打开</button></div>
+          </div>)}</div>}
+          {selectedItem && <section className="booth-translation">
+            <div className="ef-group-head"><h2>商品内容</h2><span className="ef-field">#{selectedItem.id}</span></div>
+            <h3>{selectedItem.name}</h3><p className="booth-meta">{selectedItem.shopName} │ {selectedItem.categoryName || '未分类'}</p>
+            <div className="ef-actions"><button className="ef-btn go" disabled={translating} onClick={translateItem}>{translating ? '正在翻译…' : translation ? '重新翻译' : '翻译成中文'}</button><button className="ef-btn" onClick={() => openItem(selectedItem.id)}>打开官方页面</button></div>
+            {translation && <div className="translation-grid"><div><span className="ef-eyebrow">ORIGINAL / 原文</span><h3>{selectedItem.name}</h3><p>{selectedItem.description || '商品未提供文字介绍。'}</p></div><div><span className="ef-eyebrow">中文 / 自动翻译</span><h3>{translation.name}</h3><p>{translation.description || '商品未提供文字介绍。'}</p></div></div>}
+            {!!selectedItem.variations?.length && <div className="booth-variations"><h3>版本与副本</h3>{selectedItem.variations.map((v: any) => <div className="variation-row" key={v.id || v.name}><span>{v.name}</span><b>{v.price ? v.price + ' JPY' : ''}</b>{translation?.variations?.find((x: any) => x.id === v.id)?.translatedName && <small>{translation.variations.find((x: any) => x.id === v.id).translatedName}</small>}</div>)}</div>}
+          </section>}
           {libraryOpen && (
             <div className="stack">
               <div className="ef-group-head"><h2>已购资料库（{lib.items?.length || 0}）</h2><button className="ef-btn small" onClick={loadLibrary}>刷新</button></div>
@@ -1791,6 +1881,30 @@ function Settings({ settings, reload }: { settings: any; reload: () => void }) {
         </div>
       </div>
       {orgResult ? <div className="ef-notice" data-flag={orgResult.ok ? 'i' : 'w'}>{orgResult.ok ? ('已整理 ' + orgResult.copied + '/' + orgResult.totalCards + ' 张卡到 ' + orgResult.target + (orgResult.failed ? '，失败 ' + orgResult.failed : '') + '；含 library.db 与 manifest.json，可整体移植。') : ('整理失败：' + (orgResult.error || '未知'))}</div> : null}
+<section className="oss-settings">
+        <div className="ef-group-head"><h2>开源组件与素材声明</h2><span className="ef-field">OPEN SOURCE / NOTICES</span></div>
+        <p className="oss-intro">以下组件、字体及三维资源随应用使用或分发；BOOTH 商品封面与内容属于各商品作者，仅作本地资料管理。</p>
+        <div className="oss-grid">
+          {[
+            ['React / React DOM', '19.3.1', 'MIT', '界面与组件渲染', 'https://github.com/facebook/react'],
+            ['Electron', '45.1.0', 'MIT', '桌面应用、Chromium 与 Node.js 运行时', 'https://github.com/electron/electron'],
+            ['Three.js / GLTFLoader', '0.183.0', 'MIT', '三维档案阵列、材质与 GLB 模型加载', 'https://github.com/mrdoob/three.js'],
+            ['cheerio', '1.2.0', 'MIT', 'BOOTH 页面解析', 'https://github.com/cheeriojs/cheerio'],
+            ['yauzl / node-stream-zip', '3.4.0 / 1.16.0', 'MIT', 'ZIP 与 UnityPackage 清单读取', 'https://github.com/thejoshwolfe/yauzl'],
+            ['node-unrar-js', '2.0.2', 'MIT / UnRAR', 'RAR 清单与解压；含 UnRAR 许可限制', 'https://github.com/YuJianrong/node-unrar.js'],
+            ['7z-wasm', '1.2.0', 'MIT / LGPL-2.1-or-later', '7z 等压缩格式支持；7-Zip 通过 WASM 使用', 'https://github.com/usefulsensors/7z-wasm'],
+            ['zod', '4.6.7', 'MIT', '数据结构校验', 'https://github.com/colinhacks/zod'],
+            ['Saira', 'Variable', 'SIL OFL 1.1', '拉丁文字与数字；Omnibus-Type', 'https://github.com/Omnibus-Type/Saira'],
+            ['Noto Sans SC', 'Variable', 'SIL OFL 1.1', '中文字体；Google / Adobe', 'https://github.com/notofonts/noto-cjk'],
+            ['RhineLabUI', 'archive-cassette.glb 等', 'MIT · LBEILC', '三维档案模型与相关场景资源；保留原作者声明', 'https://github.com/LBEILC/RhineLabUI'],
+            ['Endfield UI Skill', '界面设计规则', '设计参考', '工业切角、主题与动效规则；非游戏官方素材包', 'https://github.com/hhikr/endfield-ui-skill'],
+          ].map(([name, version, license, use, url]) => <article className="oss-item" key={name}>
+            <div><strong>{name}</strong><span className="oss-version">{version}</span></div>
+            <p>{use}</p><button className="oss-license" onClick={() => window.vrc.openExternal(url)}>{license} ↗</button>
+          </article>)}
+        </div>
+        <p className="oss-note">各组件的完整版权声明与许可证文本包含于发布包的第三方许可目录。商品素材不因被本软件整理而转变授权；请遵循各商品作者的使用条款。</p>
+      </section>
       <div className="ef-notice" data-flag="i">设置即时保存到本地资料库。</div>
     </div>
   );

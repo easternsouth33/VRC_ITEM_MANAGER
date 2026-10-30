@@ -6,6 +6,8 @@ dist/
 release/
 
 # 临时与测试残留
+.verify-tmp*/
+reference/
 .edge-tmp*/
 scripts/_*
 ui-mockup/shots/

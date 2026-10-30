@@ -63,6 +63,32 @@ export class Db {
         this.db.exec('ALTER TABLE assets ADD COLUMN fingerprint TEXT');
       }
     } catch (e) { /* 表不存在或已加列 */ }
+
+    const addColumns = (table: string, definitions: Record<string, string>) => {
+      const existing = cols(table);
+      for (const [name, type] of Object.entries(definitions)) {
+        if (!existing.has(name)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+      }
+    };
+    try {
+      addColumns('booth_items', {
+        variations_json: "TEXT NOT NULL DEFAULT '[]'",
+        images_json: "TEXT NOT NULL DEFAULT '[]'",
+        translation_json: 'TEXT',
+        translation_source_hash: 'TEXT',
+        translated_at: 'TEXT',
+      });
+      addColumns('collections', { kind: "TEXT NOT NULL DEFAULT 'manual'" });
+      addColumns('booth_variations', {
+        variation_id: 'TEXT',
+        name: "TEXT NOT NULL DEFAULT ''",
+        price: 'INTEGER',
+        type: 'TEXT',
+        url: 'TEXT',
+        downloadable: 'INTEGER',
+        variation_json: "TEXT NOT NULL DEFAULT '{}'",
+      });
+    } catch (e) { /* 旧库补列失败会在后续查询中显式报告 */ }
   }
 
   exec(sql: string, ...params: any[]) {
@@ -140,6 +166,34 @@ CREATE TABLE IF NOT EXISTS roots (
   added_at TEXT NOT NULL DEFAULT (datetime('now')),
   last_scan_at TEXT,
   card_count INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS import_batches (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  collection_id INTEGER,
+  label TEXT NOT NULL,
+  source TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS category_suggestions (
+  asset_id INTEGER PRIMARY KEY,
+  category_id INTEGER NOT NULL,
+  confidence REAL NOT NULL,
+  reasons_json TEXT NOT NULL DEFAULT '[]',
+  evidence_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS import_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  root_id INTEGER,
+  source TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'scan',
+  asset_ids_json TEXT NOT NULL DEFAULT '[]',
+  backup_json TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  undone_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS imports (

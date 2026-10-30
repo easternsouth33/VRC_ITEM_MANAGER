@@ -1,0 +1,45 @@
+{
+  "project": "vrc-asset-library",
+  "version": "1.0.0",
+  "generatedAt": "2026-10-30T09:16:03.001Z",
+  "runtime": {
+    "electron": "45.1.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "three": "0.183.0"
+  },
+  "dependencies": {
+    "7z-wasm": "1.2.0",
+    "cheerio": "1.2.0",
+    "node-stream-zip": "1.16.0",
+    "node-unrar-js": "2.0.2",
+    "three": "0.183.0",
+    "yauzl": "3.4.0",
+    "zod": "4.6.7"
+  },
+  "resources": [
+    {
+      "name": "RhineLabUI",
+      "files": [
+        "archive-cassette.glb",
+        "archive-assembly.glb"
+      ],
+      "license": "MIT",
+      "copyright": "Copyright (c) 2026 LBEILC",
+      "source": "reference/RhineLabUI/LICENSE"
+    },
+    {
+      "name": "Saira",
+      "file": "Saira.ttf",
+      "license": "SIL Open Font License 1.1",
+      "copyright": "Copyright 2020 The Saira Project Authors",
+      "source": "ui-mockup/fonts/Saira-OFL.txt"
+    },
+    {
+      "name": "Noto Sans SC",
+      "file": "NotoSansSC-VF.ttf",
+      "license": "SIL Open Font License 1.1",
+      "source": "https://github.com/notofonts/noto-cjk"
+    }
+  ]
+}

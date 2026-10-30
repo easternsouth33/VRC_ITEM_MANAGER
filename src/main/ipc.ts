@@ -16,11 +16,45 @@ import { normalizeName, normalizeKeyword, stripVersion } from '../shared/normali
 import type { CardSummary, GalleryQuery, GalleryPage, Settings, NetTask, CardDetail, MatchCandidate, BoothInfo, CategoryNode, CompatEvidence } from '../shared/types';
 import { buildCompatEvidence, collectCompatHits } from '../shared/compat';
 import { checkUpdate } from './updater';
+import { searchCandidates, evidenceForCard, toLocalBooth } from './matcher';
+import { translateBoothItem } from './translate';
+import { suggestAssetCategory, refreshCategorySuggestion } from './classification';
+import { createImportBatch, linkImportBatch, archiveNamesForCard } from './import-batch';
 
 export function registerIpc(db: Db, getWindow: () => BrowserWindow | null, state: { boothCookie: string; netTasks: Map<number, AbortController> }, downloader: DownloadEngine) {
+  function clearCardRecords(id: number) {
+    for (const table of ['asset_members','asset_files','asset_keywords','matches','match_history','asset_adaptations','collection_assets','compat_evidence','covers','category_suggestions']) db.exec('DELETE FROM ' + table + ' WHERE asset_id=?', id);
+    db.exec('DELETE FROM related_assets WHERE asset_id=? OR related_id=?', id, id);
+    db.exec('DELETE FROM assets WHERE id=?', id);
+  }
+  ipcMain.handle('import:batch-start', async (_e,source: string,files: string[] = []) => createImportBatch(db,source,files));
+  ipcMain.handle('import:batch-finish', async (_e,batchId: number,assetIds: number[]) => { linkImportBatch(db,batchId,assetIds); return {ok:true,count:new Set(assetIds).size}; });
+  ipcMain.handle('import:list', async () => db.all("SELECT id,root_id,source,kind,asset_ids_json,created_at,undone_at FROM import_snapshots ORDER BY id DESC LIMIT 30").map((r: any) => ({ ...r, count: JSON.parse(r.asset_ids_json).length })));
+  ipcMain.handle('import:undo', async (_e, snapshotId: number) => {
+    const snapshot = db.get('SELECT * FROM import_snapshots WHERE id=?', snapshotId) as any;
+    if (!snapshot || snapshot.undone_at) return { ok: false, error: '该导入记录已撤回或不存在' };
+    const ids: number[] = JSON.parse(snapshot.asset_ids_json);
+    const backup = snapshot.backup_json ? JSON.parse(snapshot.backup_json) : null;
+    for (const id of ids) clearCardRecords(id);
+    if (backup?.root) {
+      db.exec('UPDATE roots SET card_count=?,last_scan_at=? WHERE id=?', backup.root.card_count, backup.root.last_scan_at, snapshot.root_id);
+      for (const a of backup.assets) {
+        db.exec(`INSERT INTO assets(id,name,kind,root_id,root_key,booth_id,match_state,score,category_id,category_reason,category_manual_id,size,files,dirs,cover_path,favorite,hidden,unavailable,version_text,note,base,sample,fingerprint,fold_of,fold_parent,updated_at,created_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          a.id,a.name,a.kind,a.root_id,a.root_key,a.booth_id,a.match_state,a.score,a.category_id,a.category_reason,a.category_manual_id,a.size,a.files,a.dirs,a.cover_path,a.favorite,a.hidden,a.unavailable,a.version_text,a.note,a.base,a.sample,a.fingerprint,a.fold_of,a.fold_parent,a.updated_at,a.created_at);
+      }
+      for (const m of backup.members) db.exec('INSERT INTO asset_members(id,asset_id,path,rel_path,member_type,role,depth,size,unavailable) VALUES(?,?,?,?,?,?,?,?,?)',m.id,m.asset_id,m.path,m.rel_path,m.member_type,m.role,m.depth,m.size,m.unavailable);
+      for (const f of backup.files) db.exec('INSERT INTO asset_files(id,asset_id,path,rel_path,ext,size) VALUES(?,?,?,?,?,?)',f.id,f.asset_id,f.path,f.rel_path,f.ext,f.size);
+    } else if (snapshot.root_id) {
+      const count = (db.get('SELECT COUNT(*) AS n FROM assets WHERE root_id=?', snapshot.root_id) as any)?.n || 0;
+      db.exec('UPDATE roots SET card_count=? WHERE id=?', count, snapshot.root_id);
+    }
+    db.exec("UPDATE import_snapshots SET undone_at=datetime('now') WHERE id=?", snapshotId);
+    return { ok: true, removed: ids.length, restored: backup?.assets?.length || 0 };
+  });
   // ---- 扫描 ----
   ipcMain.handle('scan:folders', async (_e, dirs: string[]) => {
-    const results: { root: string; label: string; rootKey: string; cards: number }[] = [];
+    const results: { root: string; label: string; rootKey: string; cards: number; assetIds: number[] }[] = [];
     for (const d of dirs) {
       const label = path.basename(d);
       const rootKey = rootKeyFor(label);
@@ -34,8 +68,9 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null, state
       }
       const scanned = await scanRoot(d);
       const folded = foldSinglePackage(scanned);
-      const count = persistScan(db, root.id, rootKey, folded);
-      results.push({ root: d, label, rootKey, cards: count });
+      const assetIds: number[] = [];
+      const count = persistScan(db, root.id, rootKey, folded, assetIds);
+      results.push({ root: d, label, rootKey, cards: count, assetIds });
     }
     return { ok: true, results };
   });
@@ -84,7 +119,13 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null, state
     if (!card) return null;
     const members = db.all('SELECT * FROM asset_members WHERE asset_id = ? ORDER BY depth, rel_path', id);
     const boothId = card.booth_id as string | null;
-    const booth = boothId ? db.get('SELECT * FROM booth_items WHERE booth_id = ?', boothId) : null;
+    const boothRow = boothId ? db.get('SELECT * FROM booth_items WHERE booth_id = ?', boothId) as any : null;
+    const booth = boothRow ? toLocalBooth(boothRow) : null;
+    if (boothRow && booth) {
+      booth.tags = db.all('SELECT tag FROM booth_item_tags WHERE booth_id=?', boothId).map((r: any) => r.tag);
+      booth.variations = db.all('SELECT * FROM booth_variations WHERE booth_id=? ORDER BY id', boothId).map((v: any) => ({ id: String(v.id), name: v.name, price: v.price, type: v.type, url: v.url, downloadable: !!v.downloadable }));
+      booth.translations = boothRow.translation_json ? JSON.parse(boothRow.translation_json) : null;
+    }
     if (!card.cover_path && booth) card.cover_path = (booth as any).image_url || null;
     const candidates = db.all('SELECT * FROM matches WHERE asset_id = ? ORDER BY pinned DESC, score DESC', id);
     const keywords = db.all('SELECT keyword FROM asset_keywords WHERE asset_id = ? ORDER BY weight DESC, id', id).map((r: any) => r.keyword);
@@ -167,11 +208,28 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null, state
     }
   });
 
+  ipcMain.handle('booth:translate', async (_e, id: string, force = false) => {
+    const local = db.get('SELECT * FROM booth_items WHERE booth_id=?', id) as any;
+    let info = local ? toLocalBooth(local) : await fetchBoothItem(id, { cookie: state.boothCookie });
+    if (local) {
+      info.tags = db.all('SELECT tag FROM booth_item_tags WHERE booth_id=?', id).map((r: any) => r.tag);
+      info.variations = db.all('SELECT * FROM booth_variations WHERE booth_id=? ORDER BY id', id).map((v: any) => ({ id: String(v.id), name: v.name, price: v.price, type: v.type, url: v.url, downloadable: !!v.downloadable }));
+    }
+    if (!info.variations.length || !info.description) {
+      try { const fresh = await fetchBoothItem(id, { cookie: state.boothCookie }); saveBoothItem(db, fresh); info = fresh; } catch { /* 本地缓存可用时继续 */ }
+    }
+    const hash = JSON.stringify([info.name, info.description, info.variations.map((v) => v.name)]);
+    if (!force && local?.translation_json && local.translation_source_hash === hash) return JSON.parse(local.translation_json);
+    const translated = await translateBoothItem(info);
+    db.exec('UPDATE booth_items SET translation_json=?,translation_source_hash=?,translated_at=? WHERE booth_id=?', JSON.stringify(translated), hash, translated.translatedAt, id);
+    return translated;
+  });
+
   // ---- 匹配 ----
   ipcMain.handle('match:compute', async (_e, assetId: number) => {
     const card = db.get('SELECT * FROM assets WHERE id = ?', assetId);
     if (!card) return [];
-    const candidates = await findCandidates(db, card as any);
+    const candidates = await findCandidates(db, card as any, state);
     return candidates;
   });
 
@@ -216,9 +274,13 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null, state
     return categoryTree(db);
   });
 
+  ipcMain.handle('category:suggestion', async (_e, assetId: number) => refreshCategorySuggestion(db,assetId));
+  ipcMain.handle('category:suggestions', async () => db.all('SELECT s.*,a.name,c.name AS category_name FROM category_suggestions s JOIN assets a ON a.id=s.asset_id JOIN categories c ON c.id=s.category_id WHERE a.category_manual_id IS NULL ORDER BY s.confidence DESC,s.asset_id'));
+
   ipcMain.handle('category:assign', async (_e, assetId: number, categoryId: number, reason: string) => {
     db.exec(`UPDATE assets SET category_id=?, category_reason=?, category_manual_id=?, updated_at=datetime('now') WHERE id=?`, categoryId, reason, categoryId, assetId);
     db.exec(`INSERT INTO asset_ops(asset_id,op,payload_json) VALUES(?,?,?)`, assetId, 'category', JSON.stringify({ categoryId, reason }));
+    db.exec('DELETE FROM category_suggestions WHERE asset_id=?',assetId);
     return { ok: true };
   });
 
@@ -710,47 +772,13 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null, state
   ipcMain.handle('match:search', async (_e, assetId: number, query?: string) => {
     const card = db.get('SELECT * FROM assets WHERE id=?', assetId) as any;
     if (!card) return [];
-    const out: MatchCandidate[] = [];
-    const seen = new Set<string>();
-    // 已有候选不重复（编号直连等）
-    for (const m of db.all('SELECT booth_id FROM matches WHERE asset_id=?', assetId) as any[]) seen.add(String(m.booth_id));
-    const base = (query && query.trim()) || card.base || card.name;
-    const queries: string[] = [];
-    const pushQ = (q: string) => { const t = q.trim(); if (t && !queries.includes(t)) queries.push(t); };
-    pushQ(base);
-    // 模糊降级：去掉版本号、去掉括号内容、按分隔符切词取前几个关键词组合
-    const cleaned = base.replace(/[\(\[\{（【][^\)\]\}）】]*[\)\]\}）】]/g, ' ').replace(/[_\-.]+/g, ' ').replace(/\s+/g, ' ').trim();
-    if (cleaned && cleaned !== base) pushQ(cleaned);
-    const words = cleaned.split(' ').filter((w: string) => w.length >= 2 && !/^\d+$/.test(w));
-    if (words.length >= 2) pushQ(words.slice(0, 2).join(' '));
-    if (words.length >= 1 && queries.length < 3) pushQ(words[0]);
-    for (const q of queries.slice(0, 3)) {
-      let hits: any[] = [];
-      try { hits = await searchBooth(q, { cookie: state.boothCookie }); } catch { continue; }
-      for (const hit of hits) {
-        if (seen.has(hit.id)) continue;
-        seen.add(hit.id);
-        let info: BoothInfo | null = null;
-        try { info = await fetchBoothItem(hit.id, { cookie: state.boothCookie }); } catch { info = null; }
-        const name = info?.name || hit.name;
-        const aliases = info?.aliases || [];
-        const tags = info?.tags || [];
-        const shop = info?.shopName || hit.brand || '';
-        const sc = scoreMatch({ cardName: card.name, versionText: card.version_text, keywords: [], author: null }, { name, aliases, shopName: shop, tags }, false);
-        if (sc.score < DROP_THRESHOLD) continue;
-        if (info) saveBoothItem(db, info);
-        out.push({ boothItemId: hit.id, name, shopName: shop, score: sc.score, reasons: sc.reasons, price: info?.price || hit.price, imageUrl: info?.imageUrl || hit.imageUrl, source: 'search', pinned: false });
-        if (out.length >= 8) break;
-      }
-      if (out.length >= 8) break;
-    }
+    const out = await searchCandidates(db, card, (q) => searchBooth(q, { cookie: state.boothCookie }), (id: string) => fetchBoothItem(id, { cookie: state.boothCookie }), (info) => saveBoothItem(db, info), query);
     for (const c of out) {
       db.exec(`INSERT INTO matches(asset_id,booth_id,score,reasons_json,source,state) VALUES(?,?,?,?,?,?) ON CONFLICT(asset_id,booth_id) DO UPDATE SET score=excluded.score,reasons_json=excluded.reasons_json`,
         assetId, c.boothItemId, c.score, JSON.stringify(c.reasons), c.source, matchStateFor(c.score, false, true));
     }
-    return out.sort((a, b) => b.score - a.score).slice(0, 8);
+    return out;
   });
-
 
   // ---- 手动删除文件（m06064）：移入回收站优先，不可用时永久删除；同步清理 DB 记录 ----
   function trashOrUnlink(target: string): 'trash' | 'unlink' {
@@ -806,21 +834,22 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null, state
   });
 
   // ---- 拖入压缩包（renderer 传 File.path）----
-  ipcMain.handle('archive:inspect', async (_e, filePath: string) => {
-    const manifest = await inspectArchive(filePath);
+  ipcMain.handle('archive:inspect', async (_e, filePath: string, requestedBatchId?: number) => {
+    const batchId = requestedBatchId || createImportBatch(db, 'archive:' + filePath, [filePath]);
+  const manifest = await inspectArchive(filePath);
     const saved = saveManifest(getDataDir(db), filePath, manifest);
+    const before = db.get<{ id: number }>('SELECT id FROM assets WHERE fingerprint=?', manifest.fingerprint);
     const cardId = upsertArchiveCard(db, filePath, manifest);
+    if (!before) db.exec('INSERT INTO import_snapshots(root_id,source,kind,asset_ids_json,backup_json) VALUES(?,?,?,?,?)', null, filePath, 'archive', JSON.stringify([cardId]), null);
+  refreshCategorySuggestion(db, cardId, manifest.entries.map((e) => e.name));
+  linkImportBatch(db, batchId, [cardId]);
     // m04241：拖入后自动用文件名搜索 BOOTH，返回约 3 条候选供选择（编号已自动命中则跳过）
     let candidates: MatchCandidate[] = [];
-    const card = db.get<{ base: string | null; name: string; match_state: string }>('SELECT base,name,match_state FROM assets WHERE id=?', cardId);
+    db.exec("UPDATE assets SET match_state='pending',score=NULL WHERE id=?",cardId);
+    const card = db.get('SELECT * FROM assets WHERE id=?', cardId) as any;
     if (card && card.match_state !== 'auto') {
       try {
-        const stem = card.base || card.name;
-        const hits = await searchBooth(stem, { cookie: state.boothCookie });
-        candidates = hits.slice(0, 4).map((h) => ({
-          boothItemId: h.id, name: h.name, shopName: h.brand || '', score: 0, reasons: [],
-          price: h.price, imageUrl: h.imageUrl, source: 'search', pinned: false,
-        } as MatchCandidate));
+        candidates = (await searchCandidates(db, card, (q) => searchBooth(q, { cookie: state.boothCookie }), fetchBoothItem, (info) => saveBoothItem(db, info))).slice(0,4);
       } catch { /* 离线或搜索失败则无候选 */ }
     }
     return { manifest, saved, cardId, name: path.basename(filePath), candidates };
@@ -909,15 +938,18 @@ function upsertArchiveCard(db: Db, filePath: string, manifest: { entries: { name
 
 function saveBoothItem(db: Db, info: BoothInfo) {
   const exists = db.get('SELECT id FROM booth_items WHERE booth_id=?', info.id);
+  const values = [info.name, info.shopName, info.shopSubdomain, info.categoryId, info.categoryName, info.categoryParent, info.url, info.price, info.publishedAt, info.isAdult ? 1 : 0, info.imageUrl, JSON.stringify(info.aliases), info.description, JSON.stringify(info.variations || []), JSON.stringify(info.images || [])];
   if (exists) {
-    db.exec(`UPDATE booth_items SET name=?,shop_name=?,shop_subdomain=?,category_id=?,category_name=?,category_parent=?,url=?,price=?,published_at=?,is_adult=?,image_url=?,aliases_json=?,description=?,fetched_at=datetime('now') WHERE booth_id=?`,
-      info.name, info.shopName, info.shopSubdomain, info.categoryId, info.categoryName, info.categoryParent, info.url, info.price, info.publishedAt, info.isAdult ? 1 : 0, info.imageUrl, JSON.stringify(info.aliases), info.description, info.id);
+    db.exec(`UPDATE booth_items SET name=?,shop_name=?,shop_subdomain=?,category_id=?,category_name=?,category_parent=?,url=?,price=?,published_at=?,is_adult=?,image_url=?,aliases_json=?,description=?,variations_json=?,images_json=?,fetched_at=datetime('now') WHERE booth_id=?`, ...values, info.id);
   } else {
-    db.exec(`INSERT INTO booth_items(booth_id,name,shop_name,shop_subdomain,category_id,category_name,category_parent,url,price,published_at,is_adult,image_url,aliases_json,description) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      info.id, info.name, info.shopName, info.shopSubdomain, info.categoryId, info.categoryName, info.categoryParent, info.url, info.price, info.publishedAt, info.isAdult ? 1 : 0, info.imageUrl, JSON.stringify(info.aliases), info.description);
+    db.exec(`INSERT INTO booth_items(booth_id,name,shop_name,shop_subdomain,category_id,category_name,category_parent,url,price,published_at,is_adult,image_url,aliases_json,description,variations_json,images_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, info.id, ...values);
   }
   db.exec('DELETE FROM booth_item_tags WHERE booth_id=?', info.id);
   for (const t of info.tags) db.exec('INSERT OR IGNORE INTO booth_item_tags(booth_id,tag) VALUES(?,?)', info.id, t);
+  db.exec('DELETE FROM booth_variations WHERE booth_id=?', info.id);
+  for (const v of info.variations || []) {
+    db.exec('INSERT INTO booth_variations(booth_id,variation_id,name,price,type,url,downloadable) VALUES(?,?,?,?,?,?,?)', info.id, v.id, v.name, v.price, v.type, v.url, v.downloadable ? 1 : 0);
+  }
 }
 
 function queryGallery(db: Db, q: GalleryQuery): GalleryPage {
@@ -941,55 +973,35 @@ function queryGallery(db: Db, q: GalleryQuery): GalleryPage {
   return { total, cards: cards as unknown as CardSummary[] };
 }
 
-async function findCandidates(db: Db, card: any): Promise<MatchCandidate[]> {
-  const ids = collectBoothIds([card.name, card.base]);
+async function findCandidates(db: Db, card: any, state: { boothCookie: string }): Promise<MatchCandidate[]> {
+  const ids = collectBoothIds(evidenceForCard(db, card));
   const out: MatchCandidate[] = [];
   const seen = new Set<string>();
-  // 1. 编号直连
+  // 商品编号优先：同时检查卡片名、目录名和包内压缩包名称。
   for (const h of ids) {
     let info: BoothInfo | null = null;
-    try { info = await fetchBoothItem(h.id); } catch { /* 离线或失败，尝试本地 */ }
+    try { info = await fetchBoothItem(h.id, { cookie: state.boothCookie }); } catch { /* 尝试缓存 */ }
     if (!info) {
-      const local = db.get('SELECT * FROM booth_items WHERE booth_id=?', h.id);
-      if (local) info = local as unknown as BoothInfo;
+      const local = db.get('SELECT * FROM booth_items WHERE booth_id=?', h.id) as any;
+      if (local) info = toLocalBooth(local);
     }
     if (info && !seen.has(info.id)) {
-      seen.add(info.id);
-      saveBoothItem(db, info);
-      const sc = scoreMatch({ cardName: card.name, versionText: card.version_text, keywords: [], author: null }, { name: info.name, aliases: info.aliases, shopName: info.shopName || '', tags: info.tags }, true);
+      seen.add(info.id); saveBoothItem(db, info);
+      const sc = scoreMatch({ cardName: card.name, versionText: card.version_text, keywords: [], author: null }, { name: info.name, aliases: info.aliases, shopName: info.shopName || '', tags: info.tags, variationNames: info.variations?.map((v) => v.name) }, true);
       out.push({ boothItemId: info.id, name: info.name, shopName: info.shopName || '', score: sc.score, reasons: sc.reasons, price: info.price, imageUrl: info.imageUrl, source: 'auto', pinned: false });
     }
   }
-  // 2. 名称搜索
-  if (out.length === 0) {
-    try {
-      const base = (card.base || card.name).replace(/[_\-.\s]+(v|ver)?\d+[\.\-_]?\d*[a-z0-9\-]*$/i, '').trim();
-      let hits = await searchBooth(base);
-      if (hits.length === 0 && base !== (card.name || '')) hits = await searchBooth(card.name || base);
-      for (const hit of hits.slice(0, 6)) {
-        if (seen.has(hit.id)) continue;
-        seen.add(hit.id);
-        let info: BoothInfo | null = null;
-        try { info = await fetchBoothItem(hit.id); } catch { info = null; }
-        const name = info?.name || hit.name;
-        const aliases = info?.aliases || [];
-        const tags = info?.tags || [];
-        const shop = info?.shopName || hit.brand || '';
-        const sc = scoreMatch({ cardName: card.name, versionText: card.version_text, keywords: [], author: null }, { name, aliases, shopName: shop, tags }, false);
-        if (sc.score < DROP_THRESHOLD) continue;
-        if (info) saveBoothItem(db, info);
-        out.push({ boothItemId: hit.id, name, shopName: shop, score: sc.score, reasons: sc.reasons, price: info?.price || hit.price, imageUrl: info?.imageUrl || hit.imageUrl, source: 'search', pinned: false });
-      }
-    } catch { /* 离线 */ }
+  // 无精确编号证据时才用名称搜索；版本包名与作者共同参与打分。
+  if (!out.length) {
+    const hits = await searchCandidates(db, card, (q) => searchBooth(q, { cookie: state.boothCookie }), (id: string) => fetchBoothItem(id, { cookie: state.boothCookie }), (info) => saveBoothItem(db, info));
+    out.push(...hits);
   }
-  // 落库
   for (const c of out) {
     db.exec(`INSERT INTO matches(asset_id,booth_id,score,reasons_json,source,state) VALUES(?,?,?,?,?,?) ON CONFLICT(asset_id,booth_id) DO UPDATE SET score=excluded.score,reasons_json=excluded.reasons_json`,
       card.id, c.boothItemId, c.score, JSON.stringify(c.reasons), c.source, matchStateFor(c.score, c.source === 'auto', true));
   }
   return out.sort((a, b) => b.score - a.score);
 }
-
 
 function categoryTree(db: Db): CategoryNode[] {
   const cats = db.all('SELECT c.*, (SELECT COUNT(*) FROM assets a WHERE a.category_id=c.id) AS card_count FROM categories c ORDER BY sort, id');

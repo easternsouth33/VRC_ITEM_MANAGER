@@ -46,7 +46,7 @@ async function buildPreload() {
 
 async function buildRenderer() {
   mkdirSync(resolve(outDir, 'renderer'), { recursive: true });
-  const staticDirs = ['assets', 'fonts', 'covers'];
+  const staticDirs = ['assets', 'fonts', 'covers']; // assets/models/*.glb 随 assets 一起复制
   for (const d of staticDirs) {
     const src = resolve(root, 'ui-mockup', d);
     const dst = resolve(outDir, 'renderer', d);

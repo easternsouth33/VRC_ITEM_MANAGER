@@ -9,6 +9,10 @@ declare global {
       scanFolders(dirs: string[]): Promise<any>;
       rootsList(): Promise<any[]>;
       rootsAdd(dirs: string[]): Promise<any[]>;
+    importList(): Promise<any[]>;
+    importUndo(id: number): Promise<any>;
+    importBatchStart(source: string, files?: string[]): Promise<number>;
+    importBatchFinish(batchId: number, assetIds: number[]): Promise<any>;
       galleryQuery(q: any): Promise<{ total: number; cards: any[] }>;
       galleryCards(): Promise<any[]>;
       cardDetail(id: number): Promise<any | null>;
@@ -28,6 +32,7 @@ declare global {
       recentList(limit?: number): Promise<any[]>;
       compatEvidence(id: number): Promise<any[]>;
       boothFetch(id: string): Promise<any>;
+    boothTranslate(id: string, force?: boolean): Promise<any>;
       boothHydrateCovers(): Promise<{done:number,total:number}>;
   boothSearch(query: string): Promise<any[]>;
       matchCompute(assetId: number): Promise<any[]>;
@@ -39,6 +44,7 @@ declare global {
       matchUndo(assetId: number): Promise<any>;
       categoryTree(): Promise<any[]>;
       categoryAssign(assetId: number, categoryId: number, reason: string): Promise<any>;
+      categorySuggestions(): Promise<any[]>;
       categoryCreate(name: string, parentId?: number): Promise<any>;
       categoryRename(id: number, name: string): Promise<any>;
       categoryDelete(id: number): Promise<any>;
@@ -80,7 +86,7 @@ declare global {
       dbRestore(): Promise<{ok:boolean;error?:string}>;
       dbInfo(): Promise<{dataDir:string;dbPath:string;cards:number;boothItems:number}>;
       openPath(p: string): Promise<any>;
-      archiveInspect(filePath: string): Promise<any>;
+      archiveInspect(filePath: string, batchId?: number): Promise<any>;
       archiveExtract(filePath: string, destDir?: string): Promise<{ok:boolean;extracted:number;destDir:string;error?:string}>;
       archiveExtractCard(assetId: number, destDir?: string): Promise<{ok:boolean;results:any[];error?:string}>;
       openUnitypackage(assetId: number): Promise<{ok:boolean;path?:string;error?:string}>;

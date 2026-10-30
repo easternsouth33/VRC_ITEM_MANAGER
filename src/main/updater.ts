@@ -27,7 +27,7 @@ export async function checkUpdate(): Promise<UpdateInfo> {
   try {
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
     const res = await fetch('https://api.github.com/repos/easternsouth33/VRC_ITEM_MANAGER/releases/latest', {
-      headers: { 'User-Agent': 'VRC素材整理/' + current, 'Accept': 'application/vnd.github+json' },
+      headers: { 'User-Agent': 'VRCAssetLibrary/' + current, 'Accept': 'application/vnd.github+json' },
     });
     if (!res.ok) return base;
     const j = await res.json() as any;

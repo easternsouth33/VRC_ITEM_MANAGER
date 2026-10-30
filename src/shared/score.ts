@@ -1,6 +1,5 @@
 // 匹配打分（计划书 §5.4）
 import { normalizeName, bigramDice } from './normalize';
-
 export interface ScoreInput {
   cardName: string;          // 目录/归档名（未剥离版本）
   versionText: string | null;
@@ -12,7 +11,9 @@ export interface ScoreTarget {
   name: string;
   aliases: string[];
   shopName: string;
+  shopSubdomain?: string | null;
   tags: string[];
+  variationNames?: string[];
 }
 
 export interface ScoreResult {
@@ -23,13 +24,15 @@ export interface ScoreResult {
 // 标题相似：与商品名及各别名取最大 bigram Dice
 export function titleSimilarity(cardName: string, target: ScoreTarget): number {
   const c = normalizeName(cardName);
-  const names = [target.name, ...target.aliases].map(normalizeName);
+  const names = [target.name, ...target.aliases, ...(target.variationNames || [])].map(normalizeName);
   let best = 0;
   for (const n of names) best = Math.max(best, bigramDice(c, n));
   return best;
 }
 
 export function scoreMatch(input: ScoreInput, target: ScoreTarget, boothIdExact: boolean): ScoreResult {
+  const normalizedCard = normalizeName(input.cardName);
+  const authorFromName = normalizedCard.match(/[-–—]([^-–—]{1,24})$/)?.[1] || null;
   const reasons: string[] = [];
   let score = 0;
 
@@ -39,22 +42,23 @@ export function scoreMatch(input: ScoreInput, target: ScoreTarget, boothIdExact:
   }
 
   const title = titleSimilarity(input.cardName, target);
-  if (title > 0.5) {
-    score += 0.40 * title;
+  if (title > 0.3) {
+    score += 0.62 * title;
     if (title > 0.6) reasons.push(`标题相似 ${Math.round(title * 100)}%`);
   }
 
-  if (input.author) {
-    const a = normalizeName(input.author);
+  const author = input.author || authorFromName;
+  if (author) {
+    const a = normalizeName(author);
     const shop = normalizeName(target.shopName);
     const aliases = target.aliases.map(normalizeName);
     if (shop && (shop.includes(a) || a.includes(shop) || aliases.some((x) => x.includes(a)))) {
       score += 0.20;
-      reasons.push(`作者命中：${input.author}`);
+      reasons.push(`作者命中：${author}`);
     }
   }
 
-  if (input.versionText && target.name.toLowerCase().includes(input.versionText.toLowerCase())) {
+  if (input.versionText && [target.name, ...(target.variationNames || [])].some((n) => n.toLowerCase().includes(input.versionText!.toLowerCase()))) {
     score += 0.10;
     reasons.push('版本一致');
   }
@@ -87,4 +91,4 @@ export function matchStateFor(score: number, boothIdExact: boolean, titleOverlap
   return 'suggested'; // 兜底；调用方在 <0.55 时丢弃
 }
 
-export const DROP_THRESHOLD = 0.55;
+export const DROP_THRESHOLD = 0.38;

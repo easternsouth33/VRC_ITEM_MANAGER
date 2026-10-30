@@ -6,6 +6,10 @@ const api = {
   scanFolders: (dirs: string[]) => ipcRenderer.invoke('scan:folders', dirs),
   rootsList: () => ipcRenderer.invoke('roots:list'),
   rootsAdd: (dirs: string[]) => ipcRenderer.invoke('roots:add', dirs),
+  importList: () => ipcRenderer.invoke('import:list'),
+  importUndo: (id: number) => ipcRenderer.invoke('import:undo', id),
+  importBatchStart: (source: string, files?: string[]) => ipcRenderer.invoke('import:batch-start', source, files),
+  importBatchFinish: (batchId: number, assetIds: number[]) => ipcRenderer.invoke('import:batch-finish', batchId, assetIds),
   // 图库
   galleryQuery: (q: unknown) => ipcRenderer.invoke('gallery:query', q),
   galleryCards: () => ipcRenderer.invoke('gallery:cards'),
@@ -29,6 +33,7 @@ const api = {
   compatEvidence: (id: number) => ipcRenderer.invoke('compat:evidence', id),
   // BOOTH
   boothFetch: (id: string) => ipcRenderer.invoke('booth:fetch', id),
+  boothTranslate: (id: string, force?: boolean) => ipcRenderer.invoke('booth:translate', id, force),
   boothHydrateCovers: () => ipcRenderer.invoke('booth:hydrate-covers'),
     boothSearch: (query: string) => ipcRenderer.invoke('booth:search', query),
   boothLibrary: () => ipcRenderer.invoke('booth:library'),
@@ -45,6 +50,7 @@ const api = {
   // 分类
   categoryTree: () => ipcRenderer.invoke('category:tree'),
   categoryAssign: (assetId: number, categoryId: number, reason: string) => ipcRenderer.invoke('category:assign', assetId, categoryId, reason),
+  categorySuggestions: () => ipcRenderer.invoke('category:suggestions'),
   categoryCreate: (name: string, parentId?: number) => ipcRenderer.invoke('category:create', name, parentId),
   categoryRename: (id: number, name: string) => ipcRenderer.invoke('category:rename', id, name),
   categoryDelete: (id: number) => ipcRenderer.invoke('category:delete', id),
@@ -100,7 +106,7 @@ const api = {
   dbInfo: () => ipcRenderer.invoke('db:info'),
   openPath: (p: string) => ipcRenderer.invoke('shell:openPath', p),
   // 拖入压缩包
-  archiveInspect: (filePath: string) => ipcRenderer.invoke('archive:inspect', filePath),
+  archiveInspect: (filePath: string, batchId?: number) => ipcRenderer.invoke('archive:inspect', filePath, batchId),
   // 解压 + unitypackage 导入 Unity
   archiveExtract: (filePath: string, destDir?: string) => ipcRenderer.invoke('archive:extract', filePath, destDir),
   archiveExtractCard: (assetId: number, destDir?: string) => ipcRenderer.invoke('archive:extract-card', assetId, destDir),
