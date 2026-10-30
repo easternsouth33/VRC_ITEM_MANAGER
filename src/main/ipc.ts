@@ -123,7 +123,7 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null, state
     const booth = boothRow ? toLocalBooth(boothRow) : null;
     if (boothRow && booth) {
       booth.tags = db.all('SELECT tag FROM booth_item_tags WHERE booth_id=?', boothId).map((r: any) => r.tag);
-      booth.variations = db.all('SELECT * FROM booth_variations WHERE booth_id=? ORDER BY id', boothId).map((v: any) => ({ id: String(v.id), name: v.name, price: v.price, type: v.type, url: v.url, downloadable: !!v.downloadable }));
+      booth.variations = db.all('SELECT * FROM booth_variations WHERE booth_id=? ORDER BY id', boothId).map((v: any) => ({ id: String(v.variation_id || v.id), name: v.name, price: v.price, type: v.type, url: v.url, downloadable: !!v.downloadable }));
       booth.translations = boothRow.translation_json ? JSON.parse(boothRow.translation_json) : null;
     }
     if (!card.cover_path && booth) card.cover_path = (booth as any).image_url || null;
@@ -213,7 +213,7 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null, state
     let info = local ? toLocalBooth(local) : await fetchBoothItem(id, { cookie: state.boothCookie });
     if (local) {
       info.tags = db.all('SELECT tag FROM booth_item_tags WHERE booth_id=?', id).map((r: any) => r.tag);
-      info.variations = db.all('SELECT * FROM booth_variations WHERE booth_id=? ORDER BY id', id).map((v: any) => ({ id: String(v.id), name: v.name, price: v.price, type: v.type, url: v.url, downloadable: !!v.downloadable }));
+      info.variations = db.all('SELECT * FROM booth_variations WHERE booth_id=? ORDER BY id', id).map((v: any) => ({ id: String(v.variation_id || v.id), name: v.name, price: v.price, type: v.type, url: v.url, downloadable: !!v.downloadable }));
     }
     if (!info.variations.length || !info.description) {
       try { const fresh = await fetchBoothItem(id, { cookie: state.boothCookie }); saveBoothItem(db, fresh); info = fresh; } catch { /* 本地缓存可用时继续 */ }
@@ -948,7 +948,7 @@ function saveBoothItem(db: Db, info: BoothInfo) {
   for (const t of info.tags) db.exec('INSERT OR IGNORE INTO booth_item_tags(booth_id,tag) VALUES(?,?)', info.id, t);
   db.exec('DELETE FROM booth_variations WHERE booth_id=?', info.id);
   for (const v of info.variations || []) {
-    db.exec('INSERT INTO booth_variations(booth_id,variation_id,name,price,type,url,downloadable) VALUES(?,?,?,?,?,?,?)', info.id, v.id, v.name, v.price, v.type, v.url, v.downloadable ? 1 : 0);
+    db.exec('INSERT INTO booth_variations(booth_id,variation_id,name,price,type,url,downloadable,variation_json) VALUES(?,?,?,?,?,?,?,?)', info.id, v.id, v.name, v.price, v.type, v.url, v.downloadable ? 1 : 0, JSON.stringify(v));
   }
 }
 

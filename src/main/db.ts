@@ -295,7 +295,7 @@ CREATE TABLE IF NOT EXISTS booth_item_tags (
 CREATE TABLE IF NOT EXISTS booth_variations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   booth_id TEXT NOT NULL,
-  variation_json TEXT NOT NULL
+  variation_json TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS matches (

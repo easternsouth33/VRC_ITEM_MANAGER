@@ -29,7 +29,7 @@ export async function fetchBoothItem(id: string, opts: BoothFetchOpts = {}): Pro
     if (match?.[1]) aliases.push(match[1].trim());
   }
   const variations: BoothVariation[] = Array.isArray(j.variations) ? j.variations.map((v: any) => ({
-    id: String(v.id || ''), name: String(v.name || ''), price: v.price == null ? null : String(v.price),
+    id: String(v.id || ''), name: String(v.name || v.type || '下载内容'), price: v.price == null ? null : String(v.price),
     type: v.type || null, url: v.url || null, downloadable: !!(v.downloadable || v.downloads?.length || v.is_downloadable),
   })).filter((v: BoothVariation) => v.name) : [];
   const images: string[] = Array.isArray(j.images) ? j.images.map((im: any) => im.original || im.resized).filter(Boolean) : [];
