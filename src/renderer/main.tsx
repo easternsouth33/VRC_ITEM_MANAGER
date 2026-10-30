@@ -746,6 +746,7 @@ function CardDetail({ id }: { id: string }) {
           <span className="ef-field">{fmtBytes(d.size)}</span>
           <button className={'ef-btn small' + (d.favorite ? ' go' : '')} onClick={toggleFav}>{d.favorite ? '★ 已收藏' : '☆ 收藏'}</button>
           <button className="ef-btn small" onClick={extractWholeCard}>解压整卡</button>
+          <button className="ef-btn small danger" onClick={async () => { if (!confirm('确定删除整张素材卡及其磁盘文件？将移入回收站（不可用时永久删除）：\n' + d.name)) return; const r = await window.vrc.cardDelete(d.id); if (r?.ok) { location.hash = '/gallery'; } else { setMsg('删除完成但有失败项：' + (r?.failed || []).join(', ')); } }}>删除素材</button>
         </div>
       </div>
       <div className="tri"></div>
@@ -838,6 +839,7 @@ function CardDetail({ id }: { id: string }) {
                       </>
                     )}
                     <span className="ef-field" style={{ marginLeft: '0.5rem' }}>{fmtBytes(m.size)}</span>
+                    <button className="ef-btn small danger" onClick={async () => { if (!confirm('确定删除该文件？将移入回收站（不可用时永久删除）：\n' + m.rel_path)) return; const r = await window.vrc.fileDelete(d.id, m.path); setMsg(r?.ok ? ('已删除（' + (r.method === 'trash' ? '回收站' : r.method === 'db-only' ? '仅记录' : '永久') + '）：' + m.rel_path) : (r?.error || '删除失败')); setD(await window.vrc.cardDetail(d.id)); }}>删除</button>
                   </span>
                 </div>
               ))}
@@ -1112,6 +1114,7 @@ function Match() {
   const [sel, setSel] = useState<Set<number>>(new Set());
   const [batchMode, setBatchMode] = useState(false);
   const [batchRef, setBatchRef] = useState('');
+  const [fuzzyQuery, setFuzzyQuery] = useState('');
 
   const queue = useMemo(() => all.filter((c: any) => c.match_state === 'pending' || c.match_state === 'suggested'), [all]);
   const history = useMemo(() => all.filter((c: any) => c.match_state === 'skipped' || c.match_state === 'rejected'), [all]);
@@ -1251,6 +1254,7 @@ function Match() {
           <div className="ef-rows flat" style={{ marginTop: '1rem' }}>
             <li><span className="meta">当前：{current.name}</span><span className="acts"><button className="ef-btn small" onClick={() => window.vrc.matchSkip(current.id).then(() => { setCurrent(null); setCands([]); setMsg(''); reload(); })}>跳过</button><button className="ef-btn small" onClick={undo}>撤回</button></span></li>
             <li><span className="meta">手动编号 / 链接</span><span className="acts"><input className="ef-search" value={manualRef} onChange={(e) => setManualRef(e.target.value)} placeholder="booth.pm/zh-cn/items/6405390 或 6405390" style={{ flex: 1, minWidth: 0 }} /><button className="ef-btn small go" disabled={busy} onClick={manualApply}>关联</button></span></li>
+            <li><span className="meta">模糊词搜索</span><span className="acts"><input className="ef-search" value={fuzzyQuery} onChange={(e) => setFuzzyQuery(e.target.value)} placeholder="留空用素材名自动拆词；也可输入关键词" style={{ flex: 1, minWidth: 0 }} /><button className="ef-btn small go" disabled={busy} onClick={async () => { if (!current) return; setBusy(true); setMsg('正在模糊搜索…'); try { const r = await window.vrc.matchSearch(current.id, fuzzyQuery.trim() || undefined); setCands(r); setMsg(r.length ? ('模糊搜索命中 ' + r.length + ' 条候选') : '模糊搜索无候选，可换个关键词'); } catch (e: any) { setMsg('搜索失败：' + e.message); } setBusy(false); }}>搜索</button></span></li>
           </div>
         )}
       </div>

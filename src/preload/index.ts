@@ -36,6 +36,7 @@ const api = {
   boothWishlistUrl: (id: string) => ipcRenderer.invoke('booth:wishlist-url', id),
   // 匹配
   matchCompute: (assetId: number) => ipcRenderer.invoke('match:compute', assetId),
+  matchSearch: (assetId: number, query?: string) => ipcRenderer.invoke('match:search', assetId, query),
   matchApply: (assetId: number, boothId: string, source: string) => ipcRenderer.invoke('match:apply', assetId, boothId, source),
   matchReject: (assetId: number, boothId: string) => ipcRenderer.invoke('match:reject', assetId, boothId),
   matchApplyBatch: (assetIds: number[], boothId: string, source: string) => ipcRenderer.invoke('match:apply-batch', assetIds, boothId, source),
@@ -90,6 +91,8 @@ const api = {
   pickFolders: () => ipcRenderer.invoke('dialog:pickFolders'),
   pickFiles: () => ipcRenderer.invoke('dialog:pickFiles'),
   showItem: (p: string) => ipcRenderer.invoke('shell:showItem', p),
+  fileDelete: (assetId: number, targetPath: string) => ipcRenderer.invoke('file:delete', assetId, targetPath),
+  cardDelete: (assetId: number) => ipcRenderer.invoke('card:delete', assetId),
   // 数据备份 / 迁移
   dbBackup: () => ipcRenderer.invoke('db:backup'),
   dbRestore: () => ipcRenderer.invoke('db:restore'),

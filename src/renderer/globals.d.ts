@@ -31,6 +31,7 @@ declare global {
       boothHydrateCovers(): Promise<{done:number,total:number}>;
   boothSearch(query: string): Promise<any[]>;
       matchCompute(assetId: number): Promise<any[]>;
+      matchSearch(assetId: number, query?: string): Promise<any[]>;
       matchApply(assetId: number, boothId: string, source: string): Promise<any>;
       matchReject(assetId: number, boothId: string): Promise<any>;
       matchApplyBatch(assetIds: number[], boothId: string, source: string): Promise<any>;
@@ -72,6 +73,8 @@ declare global {
       pickFolders(): Promise<string[]>;
       pickFiles(): Promise<string[]>;
       showItem(p: string): Promise<any>;
+      fileDelete(assetId: number, targetPath: string): Promise<any>;
+      cardDelete(assetId: number): Promise<any>;
       dbBackup(): Promise<{ok:boolean;path?:string;error?:string}>;
       dbRestore(): Promise<{ok:boolean;error?:string}>;
       dbInfo(): Promise<{dataDir:string;dbPath:string;cards:number;boothItems:number}>;

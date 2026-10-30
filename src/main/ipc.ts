@@ -583,6 +583,105 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null, state
     return { ok: true };
   });
 
+  // ---- 模糊词搜索匹配（m05918）：编号直连失败/无候选时，用关键词搜索 BOOTH 补充候选 ----
+  ipcMain.handle('match:search', async (_e, assetId: number, query?: string) => {
+    const card = db.get('SELECT * FROM assets WHERE id=?', assetId) as any;
+    if (!card) return [];
+    const out: MatchCandidate[] = [];
+    const seen = new Set<string>();
+    // 已有候选不重复（编号直连等）
+    for (const m of db.all('SELECT booth_id FROM matches WHERE asset_id=?', assetId) as any[]) seen.add(String(m.booth_id));
+    const base = (query && query.trim()) || card.base || card.name;
+    const queries: string[] = [];
+    const pushQ = (q: string) => { const t = q.trim(); if (t && !queries.includes(t)) queries.push(t); };
+    pushQ(base);
+    // 模糊降级：去掉版本号、去掉括号内容、按分隔符切词取前几个关键词组合
+    const cleaned = base.replace(/[\(\[\{（【][^\)\]\}）】]*[\)\]\}）】]/g, ' ').replace(/[_\-.]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (cleaned && cleaned !== base) pushQ(cleaned);
+    const words = cleaned.split(' ').filter((w: string) => w.length >= 2 && !/^\d+$/.test(w));
+    if (words.length >= 2) pushQ(words.slice(0, 2).join(' '));
+    if (words.length >= 1 && queries.length < 3) pushQ(words[0]);
+    for (const q of queries.slice(0, 3)) {
+      let hits: any[] = [];
+      try { hits = await searchBooth(q, { cookie: state.boothCookie }); } catch { continue; }
+      for (const hit of hits) {
+        if (seen.has(hit.id)) continue;
+        seen.add(hit.id);
+        let info: BoothInfo | null = null;
+        try { info = await fetchBoothItem(hit.id, { cookie: state.boothCookie }); } catch { info = null; }
+        const name = info?.name || hit.name;
+        const aliases = info?.aliases || [];
+        const tags = info?.tags || [];
+        const shop = info?.shopName || hit.brand || '';
+        const sc = scoreMatch({ cardName: card.name, versionText: card.version_text, keywords: [], author: null }, { name, aliases, shopName: shop, tags }, false);
+        if (sc.score < DROP_THRESHOLD) continue;
+        if (info) saveBoothItem(db, info);
+        out.push({ boothItemId: hit.id, name, shopName: shop, score: sc.score, reasons: sc.reasons, price: info?.price || hit.price, imageUrl: info?.imageUrl || hit.imageUrl, source: 'search', pinned: false });
+        if (out.length >= 8) break;
+      }
+      if (out.length >= 8) break;
+    }
+    for (const c of out) {
+      db.exec(`INSERT INTO matches(asset_id,booth_id,score,reasons_json,source,state) VALUES(?,?,?,?,?,?) ON CONFLICT(asset_id,booth_id) DO UPDATE SET score=excluded.score,reasons_json=excluded.reasons_json`,
+        assetId, c.boothItemId, c.score, JSON.stringify(c.reasons), c.source, matchStateFor(c.score, false, true));
+    }
+    return out.sort((a, b) => b.score - a.score).slice(0, 8);
+  });
+
+
+  // ---- 手动删除文件（m06064）：移入回收站优先，不可用时永久删除；同步清理 DB 记录 ----
+  function trashOrUnlink(target: string): 'trash' | 'unlink' {
+    try { shell.trashItem(target); return 'trash'; } catch { /* 回收站不可用 */ }
+    try { fs.rmSync(target, { recursive: true, force: true }); return 'unlink'; } catch (e: any) { throw new Error('删除失败：' + (e?.message || String(e))); }
+  }
+
+  ipcMain.handle('file:delete', async (_e, assetId: number, targetPath: string) => {
+    // 仅允许删除属于该卡片的成员/文件，防越权
+    const mem = db.get('SELECT * FROM asset_members WHERE asset_id=? AND path=?', assetId, targetPath) as any;
+    const fil = db.get('SELECT * FROM asset_files WHERE asset_id=? AND path=?', assetId, targetPath) as any;
+    if (!mem && !fil) return { ok: false, error: '该路径不属于此素材，未删除' };
+    if (!fs.existsSync(targetPath)) {
+      // 文件已不在磁盘：只清库
+      if (mem) db.exec('DELETE FROM asset_members WHERE id=?', mem.id);
+      if (fil) db.exec('DELETE FROM asset_files WHERE id=?', fil.id);
+      return { ok: true, method: 'db-only' };
+    }
+    const method = trashOrUnlink(targetPath);
+    if (mem) db.exec('DELETE FROM asset_members WHERE id=?', mem.id);
+    if (fil) db.exec('DELETE FROM asset_files WHERE id=?', fil.id);
+    return { ok: true, method };
+  });
+
+  ipcMain.handle('card:delete', async (_e, assetId: number) => {
+    const card = db.get('SELECT * FROM assets WHERE id=?', assetId) as any;
+    if (!card) return { ok: false, error: '素材不存在' };
+    // 收集该卡所有磁盘路径（目录卡=根目录；文件/归档卡=单文件）
+    const paths = new Set<string>();
+    for (const m of db.all('SELECT path FROM asset_members WHERE asset_id=?', assetId) as any[]) paths.add(m.path);
+    for (const f of db.all('SELECT path FROM asset_files WHERE asset_id=?', assetId) as any[]) paths.add(f.path);
+    if (card.kind === 'dir' || card.kind === 'fold') {
+      // 目录卡：成员 path 通常是目录本身或子项；取最浅公共目录
+      const dirPaths = [...paths].filter((p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } });
+      if (dirPaths.length) {
+        // 最浅者（根目录）
+        dirPaths.sort((a, b) => a.length - b.length);
+        paths.clear(); paths.add(dirPaths[0]);
+      }
+    }
+    const deleted: string[] = [];
+    const failed: string[] = [];
+    for (const p of paths) {
+      try { if (fs.existsSync(p)) { trashOrUnlink(p); deleted.push(p); } } catch { failed.push(p); }
+    }
+    // 清理 DB（有外键的表逐个清）
+    for (const t of ['asset_members','asset_files','covers','matches','match_history','asset_keywords','asset_adaptations','related_assets','collection_assets','compat_evidence']) {
+      try { db.exec(`DELETE FROM ${t} WHERE asset_id=?`, assetId); } catch { /* 表结构差异忽略 */ }
+    }
+    try { db.exec('DELETE FROM related_assets WHERE related_id=?', assetId); } catch {}
+    db.exec('DELETE FROM assets WHERE id=?', assetId);
+    return { ok: failed.length === 0, deleted, failed };
+  });
+
   // ---- 拖入压缩包（renderer 传 File.path）----
   ipcMain.handle('archive:inspect', async (_e, filePath: string) => {
     const manifest = await inspectArchive(filePath);
